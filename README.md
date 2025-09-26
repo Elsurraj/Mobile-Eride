@@ -1,50 +1,236 @@
 # Welcome to your Expo app 👋
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+# E-Ride React Native App
 
-## Get started
+A complete ride-sharing mobile application built with React Native (Expo) and FastAPI backend, exactly replicating the His-eride project functionality.
 
-1. Install dependencies
+## 🚀 Features
 
-   ```bash
-   npm install
-   ```
+### Frontend (React Native)
+- **Splash Screen**: Beautiful onboarding experience with auto-advance slides
+- **Authentication Flow**: Login, Sign Up, and Forgot Password screens
+- **OTP Verification**: 6-digit SMS/Email verification system
+- **Dashboard**: User dashboard with session info, security status, and quick actions
+- **Bottom Navigation**: Role-based navigation (Rider, Driver, Courier)
+- **Exact His-eride Design**: Perfect color matching (#2d1d0c, #fcd424) and Montserrat typography
 
-2. Start the app
+### Backend (FastAPI)
+- **JWT Authentication**: Secure token-based authentication
+- **OTP System**: Redis-powered OTP generation and verification
+- **User Management**: Role-based user system (Rider, Driver, Courier)
+- **Profile Management**: Driver and Courier profile creation
+- **Database**: PostgreSQL with SQLModel/Alembic migrations
+- **Background Tasks**: Celery with Redis for email/SMS sending
+- **API Documentation**: Auto-generated OpenAPI docs
 
-   ```bash
-   npx expo start
-   ```
+## 📱 App Flow
 
-In the output, you'll find options to open the app in a
+1. **Splash Screen** → Auto-advance slides showcasing app features
+2. **Login Screen** → Email/Password authentication
+3. **OTP Verification** → 6-digit code verification (use `123456` for demo)
+4. **Dashboard** → Main user interface with bottom navigation
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+## 🛠️ Tech Stack
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+### Mobile App
+- **React Native** with Expo
+- **TypeScript** for type safety
+- **Expo Router** for navigation
+- **React Query** for data fetching
+- **Expo SecureStore** for token storage
+- **Expo Linear Gradient** for beautiful backgrounds
 
-## Get a fresh project
+### Backend
+- **Node.js** with Express.js
+- **SQLite** database (file-based)
+- **JWT** authentication
+- **bcryptjs** for password hashing
+- **In-memory OTP** storage
+- **CORS** enabled for React Native
 
-When you're ready, run:
+## 🏃‍♂️ Quick Start
+
+### Prerequisites
+- Node.js 18+
+- Expo CLI (`npm install -g @expo/cli`)
+
+### 1. Clone and Setup Frontend
 
 ```bash
+cd Eride
+npm install
+```
+
+### 2. Start Backend Server
+
+```bash
+# Navigate to backend directory
+cd backend
+
+# Install backend dependencies
+npm install
+
+# Start the backend server
+npm run dev
+```
+
+### 3. Run React Native App
+
+```bash
+# Start Expo development server
+npm start
+
+# Or run directly on platform
+npm run android  # Android
+npm run ios      # iOS
+npm run web      # Web
+```
+
+## 🔧 Backend API Endpoints
+
+### Authentication
+- `POST /api/v1/login/access-token` - Login and get JWT token
+- `POST /api/v1/auth/register` - User registration
+- `POST /api/v1/auth/otp/generate` - Generate OTP code
+- `POST /api/v1/auth/otp/verify` - Verify OTP code
+
+### Users
+- `GET /api/v1/users/me` - Get current user
+- `PATCH /api/v1/users/me` - Update current user
+- `POST /api/v1/users/` - Create new user (Admin)
+
+### Health
+- `GET /api/v1/utils/health-check/` - API health check
+
+## 🎨 Design System
+
+The app uses the exact same design system as His-eride:
+
+### Colors
+- **Primary**: `#2d1d0c` (E-Ride Black)
+- **Secondary**: `#fcd424` (E-Ride Yellow)
+- **Background**: `#FFFFFF` / `#F9FAFB`
+- **Text**: `#1F2937` / `#6B7280` / `#9CA3AF`
+
+### Typography
+- **Font Family**: Montserrat
+- **Sizes**: 12px - 36px scale
+- **Weights**: Regular (400), Medium (500), SemiBold (600), Bold (700)
+
+### Spacing
+- **Scale**: 4px, 8px, 12px, 16px, 20px, 24px, 32px, 40px, 48px, 64px
+
+## 🔐 Authentication Flow
+
+1. User enters email/password on login screen
+2. Backend validates credentials and generates JWT token
+3. App navigates to OTP verification screen
+4. User enters 6-digit OTP code (use `123456` for demo)
+5. Backend verifies OTP and marks token as verified
+6. App navigates to dashboard with authenticated state
+
+## 📱 Demo Credentials
+
+For testing purposes, you can use any email/password combination. The OTP verification code is `123456`.
+
+## 🐳 Docker Services
+
+- **PostgreSQL**: Database on port 5432
+- **Redis**: Cache/Session storage on port 6379
+- **FastAPI Backend**: API server on port 8000
+- **Celery Worker**: Background task processor
+- **Flower**: Task monitoring on port 5555
+
+## 📊 API Documentation
+
+Once the backend is running, visit:
+- **API Docs**: http://localhost:8000/docs
+- **OpenAPI Schema**: http://localhost:8000/api/v1/openapi.json
+- **Flower Monitor**: http://localhost:5555
+
+## 🔧 Development
+
+### Frontend Development
+```bash
+# Install dependencies
+npm install
+
+# Start development server
+npm start
+
+# Run linting
+npm run lint
+
+# Reset project (clean start)
 npm run reset-project
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+### Backend Development
+```bash
+# Enter backend container
+docker-compose exec backend bash
 
-## Learn more
+# Run migrations
+alembic upgrade head
 
-To learn more about developing your project with Expo, look at the following resources:
+# Create new migration
+alembic revision --autogenerate -m "Description"
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+# Run tests
+pytest
 
-## Join the community
+# Format code
+ruff format .
 
-Join our community of developers creating universal apps.
+# Lint code
+ruff check .
+```
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## 🌍 Environment Variables
+
+### Frontend (.env)
+```bash
+EXPO_PUBLIC_API_URL=http://localhost:8000
+EXPO_PUBLIC_APP_NAME=E-Ride
+EXPO_PUBLIC_APP_VERSION=1.0.0
+```
+
+### Backend (docker-compose.yml)
+- Database credentials
+- Redis connection
+- JWT secret key
+- Email service (SendGrid)
+- CORS origins
+
+## 🚀 Production Deployment
+
+### Frontend
+```bash
+# Build for production
+expo build
+
+# Or use EAS Build
+eas build --platform all
+```
+
+### Backend
+```bash
+# Build and deploy containers
+docker-compose -f docker-compose.prod.yml up -d
+```
+
+## 📄 License
+
+This project is a learning replica of the His-eride application. Please respect the original project's licensing terms.
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Open a Pull Request
+
+---
+
+**Happy Coding! 🚗💨**

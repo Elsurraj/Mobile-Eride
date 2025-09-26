@@ -1,0 +1,42 @@
+<svg width="240" height="100" viewBox="0 0 240 100" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background gradient circle -->
+  <defs>
+    <radialGradient id="bgGradient" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#fcd424;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#f1c40f;stop-opacity:1" />
+    </radialGradient>
+    <linearGradient id="textGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#2d1d0c;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a1a1a;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background circle with shadow -->
+  <circle cx="45" cy="50" r="40" fill="url(#bgGradient)" stroke="#2d1d0c" stroke-width="3" filter="drop-shadow(2px 2px 4px rgba(0,0,0,0.3))"/>
+  
+  <!-- E letter -->
+  <text x="45" y="62" font-family="Montserrat, sans-serif" font-size="36" font-weight="900" fill="url(#textGradient)" text-anchor="middle">E</text>
+  
+  <!-- "RIDE" text -->
+  <text x="110" y="38" font-family="Montserrat, sans-serif" font-size="28" font-weight="bold" fill="#fcd424">RIDE</text>
+  
+  <!-- Tagline -->
+  <text x="110" y="58" font-family="Montserrat, sans-serif" font-size="14" fill="#2d1d0c" font-weight="500">Fast & Safe Rides</text>
+  
+  <!-- Modern car silhouette -->
+  <g transform="translate(20, 70)">
+    <!-- Car body -->
+    <path d="M5 8 Q5 6 7 6 L35 6 Q40 6 42 8 L45 12 Q45 14 43 14 L7 14 Q5 14 5 12 Z" fill="#2d1d0c"/>
+    <!-- Car windows -->
+    <path d="M10 6 Q12 4 15 4 L30 4 Q33 4 35 6 L32 6 L18 6 Z" fill="#4a4a4a"/>
+    <!-- Wheels -->
+    <circle cx="12" cy="16" r="4" fill="#2d1d0c" stroke="#fcd424" stroke-width="2"/>
+    <circle cx="38" cy="16" r="4" fill="#2d1d0c" stroke="#fcd424" stroke-width="2"/>
+    <!-- Wheel centers -->
+    <circle cx="12" cy="16" r="1.5" fill="#fcd424"/>
+    <circle cx="38" cy="16" r="1.5" fill="#fcd424"/>
+  </g>
+  
+  <!-- Version marker (invisible) -->
+  <text x="235" y="95" font-size="1" fill="transparent">v2.0</text>
+</svg>

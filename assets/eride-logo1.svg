@@ -1,0 +1,18 @@
+<svg width="200" height="80" viewBox="0 0 200 80" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="40" cy="40" r="35" fill="#fcd424" stroke="#2d1d0c" stroke-width="3"/>
+  
+  <!-- E letter -->
+  <text x="40" y="50" font-family="Montserrat, sans-serif" font-size="32" font-weight="bold" fill="#2d1d0c" text-anchor="middle">E</text>
+  
+  <!-- "RIDE" text -->
+  <text x="120" y="30" font-family="Montserrat, sans-serif" font-size="24" font-weight="bold" fill="#2d1d0c">RIDE</text>
+  
+  <!-- Tagline -->
+  <text x="120" y="50" font-family="Montserrat, sans-serif" font-size="12" fill="#2d1d0c">Fast & Safe</text>
+  
+  <!-- Car icon elements -->
+  <rect x="25" y="55" width="30" height="8" rx="4" fill="#2d1d0c"/>
+  <circle cx="30" cy="63" r="3" fill="#fcd424"/>
+  <circle cx="50" cy="63" r="3" fill="#fcd424"/>
+</svg>

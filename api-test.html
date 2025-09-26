@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Ride API Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .test-section { margin: 20px 0; padding: 20px; border: 1px solid #ddd; border-radius: 5px; }
+        button { padding: 10px 20px; margin: 10px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        input { padding: 10px; margin: 5px; border: 1px solid #ccc; border-radius: 3px; width: 200px; }
+        .result { background: #f8f9fa; padding: 10px; margin: 10px 0; border-radius: 5px; border-left: 4px solid #007bff; }
+        .error { border-left-color: #dc3545; }
+        .success { border-left-color: #28a745; }
+        pre { white-space: pre-wrap; word-wrap: break-word; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚗 E-Ride API Test Page</h1>
+        <p><strong>Backend URL:</strong> http://localhost:8000</p>
+
+        <div class="test-section">
+            <h3>📋 1. API Documentation</h3>
+            <button onclick="checkDocs()">Check /docs</button>
+            <button onclick="checkRedoc()">Check /redoc</button>
+        </div>
+
+        <div class="test-section">
+            <h3>✅ 2. Health Check</h3>
+            <button onclick="healthCheck()">Test Health Check</button>
+        </div>
+
+        <div class="test-section">
+            <h3>📝 3. User Registration</h3>
+            <input type="email" id="regEmail" placeholder="Email" value="test@example.com">
+            <input type="password" id="regPassword" placeholder="Password" value="password123">
+            <input type="text" id="regFullName" placeholder="Full Name" value="Test User">
+            <br>
+            <button onclick="register()">Register User</button>
+        </div>
+
+        <div class="test-section">
+            <h3>🔐 4. User Login</h3>
+            <input type="email" id="loginEmail" placeholder="Email" value="admin@eride.com">
+            <input type="password" id="loginPassword" placeholder="Password" value="admin123">
+            <br>
+            <button onclick="login()">Login</button>
+        </div>
+
+        <div class="test-section">
+            <h3>📧 5. OTP Verification</h3>
+            <input type="email" id="otpEmail" placeholder="Email" value="admin@eride.com">
+            <input type="text" id="otpCode" placeholder="OTP Code" value="">
+            <br>
+            <button onclick="verifyOTP()">Verify OTP</button>
+            <button onclick="resendOTP()">Resend OTP</button>
+        </div>
+
+        <div class="test-section">
+            <h3>❌ 6. Error Testing</h3>
+            <button onclick="testInvalidCredentials()">Test Invalid Login</button>
+            <button onclick="testMissingFields()">Test Missing Fields</button>
+        </div>
+
+        <div id="results"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        let currentToken = null;
+
+        function showResult(title, data, isError = false) {
+            const results = document.getElementById('results');
+            const div = document.createElement('div');
+            div.className = `result ${isError ? 'error' : 'success'}`;
+            div.innerHTML = `
+                <h4>${title}</h4>
+                <pre>${JSON.stringify(data, null, 2)}</pre>
+            `;
+            results.insertBefore(div, results.firstChild);
+        }
+
+        async function apiCall(method, endpoint, body = null) {
+            try {
+                const options = {
+                    method,
+                    headers: { 'Content-Type': 'application/json' }
+                };
+                if (body) options.body = JSON.stringify(body);
+                if (currentToken) options.headers.Authorization = `Bearer ${currentToken}`;
+
+                const response = await fetch(`${API_BASE}${endpoint}`, options);
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    showResult(`❌ ${method} ${endpoint}`, { status: response.status, ...data }, true);
+                    return null;
+                }
+                
+                showResult(`✅ ${method} ${endpoint}`, data);
+                return data;
+            } catch (error) {
+                showResult(`❌ ${method} ${endpoint}`, { error: error.message }, true);
+                return null;
+            }
+        }
+
+        async function checkDocs() {
+            window.open(`${API_BASE}/docs`, '_blank');
+        }
+
+        async function checkRedoc() {
+            window.open(`${API_BASE}/redoc`, '_blank');
+        }
+
+        async function healthCheck() {
+            await apiCall('GET', '/api/v1/utils/health-check/');
+        }
+
+        async function register() {
+            const email = document.getElementById('regEmail').value;
+            const password = document.getElementById('regPassword').value;
+            const full_name = document.getElementById('regFullName').value;
+            
+            await apiCall('POST', '/api/v1/auth/register', {
+                email, password, full_name, role: 'rider'
+            });
+        }
+
+        async function login() {
+            const username = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            
+            const result = await apiCall('POST', '/api/v1/login/access-token', {
+                username, password
+            });
+            
+            if (result && result.access_token) {
+                currentToken = result.access_token;
+                document.getElementById('otpEmail').value = username;
+                alert('✅ Login successful! Check console for OTP code or your email.');
+            }
+        }
+
+        async function verifyOTP() {
+            const email = document.getElementById('otpEmail').value;
+            const code = document.getElementById('otpCode').value;
+            
+            const result = await apiCall('POST', '/api/v1/auth/otp/verify', {
+                email, code
+            });
+            
+            if (result && result.access_token) {
+                currentToken = result.access_token;
+                alert('✅ OTP verification successful! You are now fully authenticated.');
+            }
+        }
+
+        async function resendOTP() {
+            const email = document.getElementById('otpEmail').value;
+            await apiCall('POST', '/api/v1/auth/otp/resend', { email });
+        }
+
+        async function testInvalidCredentials() {
+            await apiCall('POST', '/api/v1/login/access-token', {
+                username: 'invalid@email.com',
+                password: 'wrongpassword'
+            });
+        }
+
+        async function testMissingFields() {
+            await apiCall('POST', '/api/v1/login/access-token', {
+                username: '', password: ''
+            });
+        }
+
+        // Auto-focus first input
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('regEmail').focus();
+        });
+    </script>
+</body>
+</html>
