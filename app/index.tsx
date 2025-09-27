@@ -22,7 +22,7 @@ export default function InitialScreen() {
       if (!initialized) return; // Wait for auth to initialize
 
       try {
-        console.log('🚦 Navigation check:', {
+        console.log('🚆 Navigation check:', {
           initialized,
           isAuthenticated,
           isOtpVerified,
@@ -39,16 +39,16 @@ export default function InitialScreen() {
         // If user is fully authenticated and onboarded
         else if (isAuthenticated && isOtpVerified && isOnboardingComplete) {
           console.log('🏠 Navigating to dashboard');
-          router.replace('/(dashboard)/home');
+          router.replace('/(dashboard)');
         }
         // If user is authenticated but needs onboarding
         else if (isAuthenticated && isOtpVerified && !isOnboardingComplete) {
           console.log('🎯 Navigating to onboarding');
           router.replace('/(onboarding)/welcome');
         }
-        // If user is not authenticated
+        // If user is not authenticated (including after logout)
         else {
-          console.log('🔐 Navigating to login');
+          console.log('🔐 Navigating to login (user not authenticated)');
           router.replace('/(auth)/login');
         }
       } catch (error) {
@@ -60,7 +60,7 @@ export default function InitialScreen() {
     };
 
     handleInitialNavigation();
-  }, [initialized, isAuthenticated, isOtpVerified, otpRequired, isOnboardingComplete]);
+  }, [initialized, isAuthenticated, isOtpVerified, otpRequired, isOnboardingComplete, router]);
 
   if (isInitializing || !initialized) {
     return (

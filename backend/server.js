@@ -111,6 +111,81 @@ db.serialize(() => {
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
 
+  // Drivers table
+  db.run(`CREATE TABLE IF NOT EXISTS drivers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    name TEXT NOT NULL,
+    phone TEXT,
+    rating REAL DEFAULT 5.0,
+    total_rides INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'offline',
+    latitude REAL,
+    longitude REAL,
+    location_updated_at DATETIME,
+    vehicle_make TEXT,
+    vehicle_model TEXT,
+    vehicle_year INTEGER,
+    vehicle_license_plate TEXT,
+    vehicle_color TEXT,
+    vehicle_type TEXT DEFAULT 'sedan',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users (id)
+  )`);
+
+  // Rides table
+  db.run(`CREATE TABLE IF NOT EXISTS rides (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    rider_id INTEGER,
+    driver_id INTEGER,
+    ride_type TEXT DEFAULT 'standard',
+    pickup_address TEXT NOT NULL,
+    pickup_label TEXT,
+    pickup_latitude REAL,
+    pickup_longitude REAL,
+    dropoff_address TEXT NOT NULL,
+    dropoff_label TEXT,
+    dropoff_latitude REAL,
+    dropoff_longitude REAL,
+    status TEXT DEFAULT 'pending',
+    fare_amount REAL,
+    distance REAL,
+    duration INTEGER,
+    notes TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME,
+    FOREIGN KEY (rider_id) REFERENCES users (id),
+    FOREIGN KEY (driver_id) REFERENCES drivers (id)
+  )`);
+
+  // Wallet transactions table
+  db.run(`CREATE TABLE IF NOT EXISTS wallet_transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    ride_id INTEGER,
+    type TEXT NOT NULL,
+    amount REAL NOT NULL,
+    currency TEXT DEFAULT 'NGN',
+    description TEXT,
+    status TEXT DEFAULT 'completed',
+    reference TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users (id),
+    FOREIGN KEY (ride_id) REFERENCES rides (id)
+  )`);
+
+  // Wallet balances table
+  db.run(`CREATE TABLE IF NOT EXISTS wallet_balances (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER UNIQUE,
+    balance REAL DEFAULT 0.0,
+    currency TEXT DEFAULT 'NGN',
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users (id)
+  )`);
+
   // Create default admin user
   const adminEmail = 'admin@eride.com';
   const adminPassword = bcrypt.hashSync('admin123', 10);
@@ -118,9 +193,81 @@ db.serialize(() => {
   db.get('SELECT * FROM users WHERE email = ?', [adminEmail], (err, row) => {
     if (!row) {
       db.run('INSERT INTO users (email, password, full_name, role, is_superuser) VALUES (?, ?, ?, ?, ?)', 
-        [adminEmail, adminPassword, 'Admin User', 'admin', 1]);
+        [adminEmail, adminPassword, 'Admin User', 'admin', 1], function() {
+          // Create wallet for admin
+          db.run('INSERT INTO wallet_balances (user_id, balance) VALUES (?, ?)', [this.lastID, 10000]);
+        });
       console.log('✅ Default admin user created: admin@eride.com / admin123');
     }
+  });
+
+  // Create some sample drivers
+  const sampleDrivers = [
+    {
+      name: 'Ahmed Okonkwo',
+      phone: '+234-8012-345-678',
+      rating: 4.8,
+      total_rides: 245,
+      status: 'online',
+      latitude: 6.5244,
+      longitude: 3.3792,
+      vehicle_make: 'Toyota',
+      vehicle_model: 'Camry',
+      vehicle_year: 2020,
+      vehicle_license_plate: 'LAG-123-ABC',
+      vehicle_color: 'Silver',
+      vehicle_type: 'sedan'
+    },
+    {
+      name: 'Fatima Ibrahim',
+      phone: '+234-8087-654-321',
+      rating: 4.9,
+      total_rides: 312,
+      status: 'online',
+      latitude: 6.5344,
+      longitude: 3.3892,
+      vehicle_make: 'Honda',
+      vehicle_model: 'Accord',
+      vehicle_year: 2021,
+      vehicle_license_plate: 'LAG-456-DEF',
+      vehicle_color: 'Black',
+      vehicle_type: 'sedan'
+    },
+    {
+      name: 'Chinedu Okoro',
+      phone: '+234-8098-765-432',
+      rating: 4.7,
+      total_rides: 189,
+      status: 'online',
+      latitude: 6.5144,
+      longitude: 3.3692,
+      vehicle_make: 'Hyundai',
+      vehicle_model: 'Elantra',
+      vehicle_year: 2019,
+      vehicle_license_plate: 'LAG-789-GHI',
+      vehicle_color: 'White',
+      vehicle_type: 'sedan'
+    }
+  ];
+
+  // Insert sample drivers if they don't exist
+  sampleDrivers.forEach(driver => {
+    db.get('SELECT * FROM drivers WHERE name = ?', [driver.name], (err, row) => {
+      if (!row) {
+        db.run(`INSERT INTO drivers (
+          name, phone, rating, total_rides, status, 
+          latitude, longitude, location_updated_at,
+          vehicle_make, vehicle_model, vehicle_year, 
+          vehicle_license_plate, vehicle_color, vehicle_type
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, 
+        [
+          driver.name, driver.phone, driver.rating, driver.total_rides, driver.status,
+          driver.latitude, driver.longitude, new Date().toISOString(),
+          driver.vehicle_make, driver.vehicle_model, driver.vehicle_year,
+          driver.vehicle_license_plate, driver.vehicle_color, driver.vehicle_type
+        ]);
+      }
+    });
   });
 });
 
@@ -548,6 +695,428 @@ app.post('/api/v1/auth/otp/resend', async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
+
+// === DRIVERS API ===
+
+// Get available drivers near a location
+app.get('/api/v1/drivers/available', (req, res) => {
+  const { lat, lng, radius = 10 } = req.query;
+  
+  if (!lat || !lng) {
+    return res.status(400).json({ message: 'Latitude and longitude are required' });
+  }
+
+  const latitude = parseFloat(lat);
+  const longitude = parseFloat(lng);
+  const radiusKm = parseFloat(radius);
+
+  // Get online drivers within radius
+  const query = `
+    SELECT * FROM drivers 
+    WHERE status = 'online' 
+    AND latitude IS NOT NULL 
+    AND longitude IS NOT NULL
+  `;
+  
+  db.all(query, [], (err, drivers) => {
+    if (err) {
+      return res.status(500).json({ message: 'Database error' });
+    }
+
+    // Filter drivers within radius and format response
+    const availableDrivers = drivers.filter(driver => {
+      const distance = calculateDistance(latitude, longitude, driver.latitude, driver.longitude);
+      return distance <= radiusKm;
+    }).map(driver => ({
+      id: driver.id.toString(),
+      name: driver.name,
+      email: `${driver.name.toLowerCase().replace(' ', '.')}@eride.com`,
+      phone: driver.phone,
+      rating: driver.rating,
+      total_rides: driver.total_rides,
+      status: driver.status,
+      location: {
+        latitude: driver.latitude,
+        longitude: driver.longitude,
+        accuracy: 10,
+        timestamp: driver.location_updated_at || new Date().toISOString()
+      },
+      vehicle: {
+        make: driver.vehicle_make,
+        model: driver.vehicle_model,
+        year: driver.vehicle_year,
+        license_plate: driver.vehicle_license_plate,
+        color: driver.vehicle_color,
+        type: driver.vehicle_type
+      },
+      created_at: driver.created_at,
+      updated_at: driver.updated_at
+    }));
+
+    res.json({ drivers: availableDrivers });
+  });
+});
+
+// === RIDES API ===
+
+// Create a new ride
+app.post('/api/v1/rides/request', verifyToken, (req, res) => {
+  const {
+    pickup_address,
+    pickup_label,
+    pickup_coordinates,
+    dropoff_address,
+    dropoff_label,
+    dropoff_coordinates,
+    ride_type,
+    notes
+  } = req.body;
+
+  if (!pickup_address || !dropoff_address) {
+    return res.status(400).json({ message: 'Pickup and dropoff addresses are required' });
+  }
+
+  // Calculate mock distance and duration
+  const distance = pickup_coordinates && dropoff_coordinates 
+    ? calculateDistance(
+        pickup_coordinates.latitude, pickup_coordinates.longitude,
+        dropoff_coordinates.latitude, dropoff_coordinates.longitude
+      )
+    : Math.random() * 10 + 1; // Mock distance between 1-11 km
+
+  const duration = Math.round(distance * 3 + Math.random() * 10); // Roughly 3 min per km + traffic
+  const fareAmount = calculateRideFare(distance, duration, ride_type || 'standard');
+
+  const query = `
+    INSERT INTO rides (
+      rider_id, ride_type, pickup_address, pickup_label, pickup_latitude, pickup_longitude,
+      dropoff_address, dropoff_label, dropoff_latitude, dropoff_longitude,
+      distance, duration, fare_amount, notes, status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+  `;
+
+  const values = [
+    req.user.user_id,
+    ride_type || 'standard',
+    pickup_address,
+    pickup_label,
+    pickup_coordinates?.latitude,
+    pickup_coordinates?.longitude,
+    dropoff_address,
+    dropoff_label,
+    dropoff_coordinates?.latitude,
+    dropoff_coordinates?.longitude,
+    distance,
+    duration,
+    fareAmount,
+    notes
+  ];
+
+  db.run(query, values, function(err) {
+    if (err) {
+      return res.status(500).json({ message: 'Failed to create ride', error: err.message });
+    }
+
+    // Fetch the created ride
+    db.get('SELECT * FROM rides WHERE id = ?', [this.lastID], (err, ride) => {
+      if (err) {
+        return res.status(500).json({ message: 'Failed to fetch created ride' });
+      }
+
+      // Format response
+      const rideResponse = {
+        id: ride.id.toString(),
+        type: ride.ride_type === 'delivery' ? 'delivery' : 'ride',
+        from: {
+          address: ride.pickup_address,
+          label: ride.pickup_label,
+          latitude: ride.pickup_latitude,
+          longitude: ride.pickup_longitude
+        },
+        to: {
+          address: ride.dropoff_address,
+          label: ride.dropoff_label,
+          latitude: ride.dropoff_latitude,
+          longitude: ride.dropoff_longitude
+        },
+        customer_name: 'Current User',
+        status: ride.status,
+        amount: ride.fare_amount,
+        formatted_amount: `₦${ride.fare_amount.toFixed(2)}`,
+        distance: ride.distance,
+        duration: ride.duration,
+        created_at: ride.created_at,
+        updated_at: ride.updated_at
+      };
+
+      res.status(201).json(rideResponse);
+    });
+  });
+});
+
+// Get ride details
+app.get('/api/v1/rides/:id', verifyToken, (req, res) => {
+  const { id } = req.params;
+  
+  db.get('SELECT * FROM rides WHERE id = ?', [id], (err, ride) => {
+    if (err) {
+      return res.status(500).json({ message: 'Database error' });
+    }
+    
+    if (!ride) {
+      return res.status(404).json({ message: 'Ride not found' });
+    }
+
+    // Format response
+    const rideResponse = {
+      id: ride.id.toString(),
+      type: ride.ride_type === 'delivery' ? 'delivery' : 'ride',
+      from: {
+        address: ride.pickup_address,
+        label: ride.pickup_label,
+        latitude: ride.pickup_latitude,
+        longitude: ride.pickup_longitude
+      },
+      to: {
+        address: ride.dropoff_address,
+        label: ride.dropoff_label,
+        latitude: ride.dropoff_latitude,
+        longitude: ride.dropoff_longitude
+      },
+      customer_name: 'Current User',
+      driver_name: ride.driver_id ? 'Assigned Driver' : null,
+      status: ride.status,
+      amount: ride.fare_amount,
+      formatted_amount: `₦${ride.fare_amount.toFixed(2)}`,
+      distance: ride.distance,
+      duration: ride.duration,
+      eta: ride.status === 'pending' ? Math.round(ride.duration * 0.8) : null,
+      created_at: ride.created_at,
+      updated_at: ride.updated_at
+    };
+
+    res.json(rideResponse);
+  });
+});
+
+// === WALLET API ===
+
+// Get wallet balance
+app.get('/api/v1/wallet/balance', verifyToken, (req, res) => {
+  // Ensure user has a wallet
+  const insertWalletQuery = `
+    INSERT OR IGNORE INTO wallet_balances (user_id, balance) 
+    VALUES (?, 5000.0)
+  `;
+  
+  db.run(insertWalletQuery, [req.user.user_id], (err) => {
+    if (err) {
+      return res.status(500).json({ message: 'Database error' });
+    }
+
+    // Get wallet balance
+    db.get('SELECT * FROM wallet_balances WHERE user_id = ?', [req.user.user_id], (err, wallet) => {
+      if (err) {
+        return res.status(500).json({ message: 'Database error' });
+      }
+
+      res.json({
+        balance: wallet.balance,
+        currency: wallet.currency,
+        formatted: `₦${wallet.balance.toFixed(2)}`
+      });
+    });
+  });
+});
+
+// Get wallet transactions
+app.get('/api/v1/wallet/transactions', verifyToken, (req, res) => {
+  const { page = 1, limit = 20 } = req.query;
+  const offset = (page - 1) * limit;
+  
+  const query = `
+    SELECT * FROM wallet_transactions 
+    WHERE user_id = ? 
+    ORDER BY created_at DESC 
+    LIMIT ? OFFSET ?
+  `;
+  
+  db.all(query, [req.user.user_id, limit, offset], (err, transactions) => {
+    if (err) {
+      return res.status(500).json({ message: 'Database error' });
+    }
+
+    const formattedTransactions = transactions.map(tx => ({
+      id: tx.id.toString(),
+      type: tx.type,
+      amount: tx.amount,
+      currency: tx.currency,
+      formatted_amount: tx.amount >= 0 ? `+₦${tx.amount.toFixed(2)}` : `-₦${Math.abs(tx.amount).toFixed(2)}`,
+      description: tx.description,
+      date: new Date(tx.created_at).toLocaleDateString(),
+      time: new Date(tx.created_at).toLocaleTimeString(),
+      status: tx.status,
+      reference: tx.reference
+    }));
+
+    res.json({ transactions: formattedTransactions });
+  });
+});
+
+// Process ride payment
+app.post('/api/v1/wallet/ride-payment', verifyToken, (req, res) => {
+  const { rideId, amount, driverId, fareBreakdown } = req.body;
+  
+  if (!rideId || !amount || !driverId) {
+    return res.status(400).json({ message: 'rideId, amount, and driverId are required' });
+  }
+
+  // Start transaction
+  db.serialize(() => {
+    db.run('BEGIN TRANSACTION');
+    
+    // Check rider balance
+    db.get('SELECT balance FROM wallet_balances WHERE user_id = ?', [req.user.user_id], (err, riderWallet) => {
+      if (err || !riderWallet) {
+        db.run('ROLLBACK');
+        return res.status(500).json({ message: 'Failed to get rider balance' });
+      }
+      
+      if (riderWallet.balance < amount) {
+        db.run('ROLLBACK');
+        return res.status(400).json({ message: 'Insufficient balance' });
+      }
+      
+      // Deduct from rider
+      const newRiderBalance = riderWallet.balance - amount;
+      db.run('UPDATE wallet_balances SET balance = ?, updated_at = ? WHERE user_id = ?', 
+        [newRiderBalance, new Date().toISOString(), req.user.user_id], (err) => {
+        if (err) {
+          db.run('ROLLBACK');
+          return res.status(500).json({ message: 'Failed to deduct rider balance' });
+        }
+        
+        // Add earnings to driver (85% of fare, 15% platform fee)
+        const driverEarnings = amount * 0.85;
+        db.run(`INSERT OR IGNORE INTO wallet_balances (user_id, balance) VALUES (?, 0.0)`, [driverId]);
+        db.run(`UPDATE wallet_balances SET balance = balance + ?, updated_at = ? WHERE user_id = ?`,
+          [driverEarnings, new Date().toISOString(), driverId], (err) => {
+          if (err) {
+            db.run('ROLLBACK');
+            return res.status(500).json({ message: 'Failed to credit driver balance' });
+          }
+          
+          // Record transactions
+          const transactionRef = `tx_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+          
+          // Rider debit transaction
+          db.run(`INSERT INTO wallet_transactions 
+            (user_id, ride_id, type, amount, description, reference) 
+            VALUES (?, ?, 'ride_payment', ?, ?, ?)`,
+            [req.user.user_id, rideId, -amount, `Ride payment for trip ${rideId}`, transactionRef]);
+          
+          // Driver credit transaction  
+          db.run(`INSERT INTO wallet_transactions 
+            (user_id, ride_id, type, amount, description, reference) 
+            VALUES (?, ?, 'ride_payment', ?, ?, ?)`,
+            [driverId, rideId, driverEarnings, `Ride earnings for trip ${rideId}`, transactionRef], (err) => {
+            if (err) {
+              db.run('ROLLBACK');
+              return res.status(500).json({ message: 'Failed to record transactions' });
+            }
+            
+            // Update ride status
+            db.run('UPDATE rides SET status = ?, updated_at = ?, completed_at = ? WHERE id = ?',
+              ['completed', new Date().toISOString(), new Date().toISOString(), rideId], (err) => {
+              if (err) {
+                db.run('ROLLBACK');
+                return res.status(500).json({ message: 'Failed to update ride status' });
+              }
+              
+              db.run('COMMIT');
+              
+              // Return success response
+              res.json({
+                transactionId: transactionRef,
+                riderBalance: newRiderBalance,
+                driverBalance: driverEarnings,
+                timestamp: new Date().toISOString()
+              });
+            });
+          });
+        });
+      });
+    });
+  });
+});
+
+// Reset driver status (for post-ride cleanup)
+app.post('/api/v1/drivers/:id/reset-status', verifyToken, (req, res) => {
+  const { id: driverId } = req.params;
+  const { status = 'online' } = req.body;
+  
+  // Update driver status to available
+  db.run(
+    'UPDATE drivers SET status = ?, location_updated_at = ? WHERE id = ?',
+    [status, new Date().toISOString(), driverId],
+    function(err) {
+      if (err) {
+        return res.status(500).json({ message: 'Failed to update driver status' });
+      }
+      
+      if (this.changes === 0) {
+        return res.status(404).json({ message: 'Driver not found' });
+      }
+      
+      console.log(`🚗 Driver ${driverId} status reset to: ${status}`);
+      
+      res.json({
+        message: 'Driver status updated successfully',
+        driverId,
+        status,
+        timestamp: new Date().toISOString()
+      });
+    }
+  );
+});
+
+// Helper functions
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371; // Earth's radius in kilometers
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
+
+function calculateRideFare(distance, duration, rideType) {
+  let baseFare = 200;
+  let perKmRate = 80;
+  let perMinRate = 10;
+
+  switch (rideType) {
+    case 'premium':
+      baseFare = 350;
+      perKmRate = 120;
+      perMinRate = 15;
+      break;
+    case 'delivery':
+      baseFare = 150;
+      perKmRate = 60;
+      perMinRate = 8;
+      break;
+  }
+
+  const distanceFare = distance * perKmRate;
+  const timeFare = duration * perMinRate;
+  const subtotal = baseFare + distanceFare + timeFare;
+  const serviceFee = Math.round(subtotal * 0.1);
+  
+  return subtotal + serviceFee;
+}
 
 // API Documentation endpoints
 app.get('/docs', (req, res) => {

@@ -96,7 +96,37 @@ export default function DashboardLayout() {
         }}
       />
       <Tabs.Screen
+        name="driver-selection"
+        options={{
+          href: null, // Hide from tab bar
+        }}
+      />
+      <Tabs.Screen
+        name="driver-enroute"
+        options={{
+          href: null, // Hide from tab bar
+        }}
+      />
+      <Tabs.Screen
+        name="ride-tracking"
+        options={{
+          href: null, // Hide from tab bar
+        }}
+      />
+      <Tabs.Screen
+        name="ride-completion"
+        options={{
+          href: null, // Hide from tab bar
+        }}
+      />
+      <Tabs.Screen
         name="ride-details"
+        options={{
+          href: null, // Hide from tab bar
+        }}
+      />
+      <Tabs.Screen
+        name="map"
         options={{
           href: null, // Hide from tab bar
         }}

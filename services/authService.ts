@@ -227,6 +227,28 @@ class AuthService extends BaseApiService {
   }
 
   /**
+   * Logout user and invalidate session
+   */
+  async logout(): Promise<{ success: boolean; error?: string }> {
+    if (healthService.shouldUseMockMode()) {
+      return this.mockLogout();
+    }
+
+    try {
+      // Call backend logout endpoint if available
+      const result = await this.post('/api/v1/auth/logout');
+      
+      return {
+        success: result.success,
+        error: result.error
+      };
+    } catch (error) {
+      console.warn('⚠️ Auth Service: Logout failed, falling back to mock');
+      return this.mockLogout();
+    }
+  }
+
+  /**
    * Complete onboarding process
    */
   async completeOnboarding(profileData?: any): Promise<{ success: boolean; error?: string; user?: User }> {
@@ -450,6 +472,16 @@ class AuthService extends BaseApiService {
     return {
       data: updatedUser,
       success: true,
+    };
+  }
+
+  private async mockLogout(): Promise<{ success: boolean; error?: string }> {
+    await new Promise(resolve => setTimeout(resolve, 300)); // Simulate network delay
+
+    console.log('🚪 Mock Auth: User logged out successfully');
+
+    return {
+      success: true
     };
   }
 }

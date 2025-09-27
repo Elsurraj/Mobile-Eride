@@ -154,17 +154,44 @@ class RidesApiService extends BaseApiService {
 
   // Get active rides only
   async getActiveRides(): Promise<ApiResponse<Ride[]>> {
-    return this.get<Ride[]>('/api/v1/rides/active');
+    if (healthService.shouldUseMockMode()) {
+      return this.getMockRides('active');
+    }
+
+    try {
+      return await this.get<Ride[]>('/api/v1/rides/active');
+    } catch (error) {
+      console.warn('⚠️ Rides Service: getActiveRides failed, falling back to mock');
+      return this.getMockRides('active');
+    }
   }
 
   // Get completed rides
   async getCompletedRides(page: number = 1, limit: number = 20): Promise<ApiResponse<Ride[]>> {
-    return this.get<Ride[]>(`/api/v1/rides/completed?page=${page}&limit=${limit}`);
+    if (healthService.shouldUseMockMode()) {
+      return this.getMockRides('completed', page, limit);
+    }
+
+    try {
+      return await this.get<Ride[]>(`/api/v1/rides/completed?page=${page}&limit=${limit}`);
+    } catch (error) {
+      console.warn('⚠️ Rides Service: getCompletedRides failed, falling back to mock');
+      return this.getMockRides('completed', page, limit);
+    }
   }
 
   // Get cancelled rides
   async getCancelledRides(page: number = 1, limit: number = 20): Promise<ApiResponse<Ride[]>> {
-    return this.get<Ride[]>(`/api/v1/rides/cancelled?page=${page}&limit=${limit}`);
+    if (healthService.shouldUseMockMode()) {
+      return this.getMockRides('cancelled', page, limit);
+    }
+
+    try {
+      return await this.get<Ride[]>(`/api/v1/rides/cancelled?page=${page}&limit=${limit}`);
+    } catch (error) {
+      console.warn('⚠️ Rides Service: getCancelledRides failed, falling back to mock');
+      return this.getMockRides('cancelled', page, limit);
+    }
   }
 
   // Request a ride (for riders)
@@ -272,12 +299,30 @@ class RidesApiService extends BaseApiService {
 
   // Rate a completed ride
   async rateRide(rideId: string, rating: number, comment?: string): Promise<ApiResponse<any>> {
-    return this.post(`/api/v1/rides/${rideId}/rate`, { rating, comment });
+    if (healthService.shouldUseMockMode()) {
+      return this.mockRateRide(rideId, rating, comment);
+    }
+
+    try {
+      return await this.post(`/api/v1/rides/${rideId}/rate`, { rating, comment });
+    } catch (error) {
+      console.warn('⚠️ Rides Service: rateRide failed, falling back to mock');
+      return this.mockRateRide(rideId, rating, comment);
+    }
   }
 
   // Get ride statistics (for drivers and couriers)
   async getRideStats(): Promise<ApiResponse<RideStats>> {
-    return this.get<RideStats>('/api/v1/rides/stats');
+    if (healthService.shouldUseMockMode()) {
+      return this.mockGetRideStats();
+    }
+
+    try {
+      return await this.get<RideStats>('/api/v1/rides/stats');
+    } catch (error) {
+      console.warn('⚠️ Rides Service: getRideStats failed, falling back to mock');
+      return this.mockGetRideStats();
+    }
   }
 
   // Driver/Courier specific endpoints
@@ -304,7 +349,30 @@ class RidesApiService extends BaseApiService {
 
   // Complete a ride (for drivers and couriers)
   async completeRide(rideId: string): Promise<ApiResponse<Ride>> {
-    return this.post<Ride>(`/api/v1/rides/${rideId}/complete`);
+    if (healthService.shouldUseMockMode()) {
+      return this.mockCompleteRide(rideId);
+    }
+
+    try {
+      return await this.post<Ride>(`/api/v1/rides/${rideId}/complete`);
+    } catch (error) {
+      console.warn('⚠️ Rides Service: completeRide failed, falling back to mock');
+      return this.mockCompleteRide(rideId);
+    }
+  }
+
+  // Reset driver status after ride completion
+  async resetDriverStatus(driverId: string): Promise<ApiResponse<any>> {
+    if (healthService.shouldUseMockMode()) {
+      return this.mockResetDriverStatus(driverId);
+    }
+
+    try {
+      return await this.post(`/api/v1/drivers/${driverId}/reset-status`);
+    } catch (error) {
+      console.warn('⚠️ Rides Service: resetDriverStatus failed, falling back to mock');
+      return this.mockResetDriverStatus(driverId);
+    }
   }
 
   // Update ride location (for drivers and couriers)
@@ -886,6 +954,84 @@ class RidesApiService extends BaseApiService {
       formatted_amount: `₦${penaltyAmount.toFixed(2)}`,
       reason,
       waived
+    };
+  }
+
+  // Additional missing mock implementations
+  private async mockRateRide(rideId: string, rating: number, comment?: string): Promise<ApiResponse<any>> {
+    await new Promise(resolve => setTimeout(resolve, 300));
+    
+    console.log(`⭐ Mock Rides: Rated ride ${rideId} with ${rating} stars: ${comment || 'No comment'}`);
+    
+    return {
+      data: {
+        message: 'Ride rated successfully (mock)',
+        rideId,
+        rating,
+        comment
+      },
+      success: true
+    };
+  }
+
+  private async mockCompleteRide(rideId: string): Promise<ApiResponse<Ride>> {
+    await new Promise(resolve => setTimeout(resolve, 800));
+    
+    const ride = mockRides.find(r => r.id === rideId);
+    if (!ride) {
+      return {
+        data: null,
+        success: false,
+        error: 'Ride not found'
+      };
+    }
+
+    const completedRide: Ride = {
+      ...ride,
+      status: 'completed',
+      updated_at: new Date().toISOString()
+    };
+
+    console.log(`✅ Mock Rides: Completed ride ${rideId}`);
+    
+    return {
+      data: completedRide,
+      success: true,
+      message: 'Ride completed successfully (mock)'
+    };
+  }
+
+  private async mockResetDriverStatus(driverId: string): Promise<ApiResponse<any>> {
+    await new Promise(resolve => setTimeout(resolve, 300));
+    
+    console.log(`🚗 Mock Rides: Reset driver ${driverId} status to available`);
+    
+    return {
+      data: {
+        driverId,
+        status: 'online',
+        message: 'Driver status reset to available (mock)'
+      },
+      success: true
+    };
+  }
+
+  private async mockGetRideStats(): Promise<ApiResponse<RideStats>> {
+    await new Promise(resolve => setTimeout(resolve, 400));
+    
+    const stats: RideStats = {
+      total_rides: 156,
+      completed_rides: 142,
+      cancelled_rides: 14,
+      total_earnings: 89500,
+      formatted_earnings: '₦89,500.00',
+      average_rating: 4.7
+    };
+    
+    return {
+      data: stats,
+      success: true,
+      message: 'Mock ride statistics loaded'
     };
   }
 }

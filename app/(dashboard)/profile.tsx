@@ -80,7 +80,15 @@ export default function ProfileScreen() {
         {
           text: 'Logout',
           style: 'destructive',
-          onPress: logout,
+          onPress: async () => {
+            console.log('🚪 Profile: Logout button pressed');
+            try {
+              await logout();
+              console.log('🚪 Profile: Logout function completed');
+            } catch (error) {
+              console.error('🚪 Profile: Logout error:', error);
+            }
+          },
         },
       ]
     );

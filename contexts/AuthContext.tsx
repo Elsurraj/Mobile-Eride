@@ -178,6 +178,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
   
   const resetAuthState = () => {
+    console.log('🔄 Resetting authentication state...');
     setUser(null);
     setIsAuthenticated(false);
     setIsOtpVerified(false);
@@ -185,6 +186,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setUserEmail('');
     setError(null);
     setIsOnboardingComplete(false);
+    console.log('✅ Authentication state reset complete');
   };
 
   const login = async (credentials: { username: string; password: string }): Promise<{ success: boolean; error?: string }> => {
@@ -425,11 +427,39 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const logout = async () => {
+    console.log('🚪 Starting logout process...');
+    setIsLoading(true);
+    
     try {
+      // Call backend logout if available
+      if (isBackendHealthy) {
+        try {
+          const result = await authService.logout();
+          if (result.success) {
+            console.log('✅ Backend logout successful');
+          } else {
+            console.warn('⚠️ Backend logout failed:', result.error);
+          }
+        } catch (error) {
+          console.warn('⚠️ Backend logout request failed:', error);
+        }
+      }
+      
+      // Clear all stored data
       await enhancedTokenManager.clearAllData();
+      console.log('✅ Token manager data cleared');
+      
+      // Reset all authentication state
       resetAuthState();
+      console.log('✅ Auth state reset');
+      
+      console.log('🔓 Logout completed successfully');
     } catch (error) {
-      console.error('Error during logout:', error);
+      console.error('❌ Error during logout:', error);
+      // Even if there's an error, still reset the state to ensure user is logged out
+      resetAuthState();
+    } finally {
+      setIsLoading(false);
     }
   };
 

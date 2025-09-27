@@ -43,30 +43,51 @@ export class LocationService {
    */
   static async getCurrentLocation(): Promise<LocationData | null> {
     try {
-      const hasPermission = await this.requestLocationPermission();
-      if (!hasPermission) return null;
+      // For web, skip permission check and try direct location access
+      if (typeof window !== 'undefined' && window.navigator?.geolocation) {
+        try {
+          const location = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.High,
+            timeoutMs: 10000,
+          });
 
-      const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
-        timeoutMs: 10000,
-      });
+          return {
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+            accuracy: location.coords.accuracy,
+            timestamp: location.timestamp,
+          };
+        } catch (locationError) {
+          console.log('Location access failed, using mock location');
+        }
+      } else {
+        // Native platforms - request permission first
+        const hasPermission = await this.requestLocationPermission();
+        if (!hasPermission) return null;
 
-      return {
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-        accuracy: location.coords.accuracy,
-        timestamp: location.timestamp,
-      };
+        const location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
+          timeoutMs: 10000,
+        });
+
+        return {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+          accuracy: location.coords.accuracy,
+          timestamp: location.timestamp,
+        };
+      }
     } catch (error) {
       console.error('Error getting current location:', error);
-      // Return mock location for development
-      return {
-        latitude: 6.5244, // Lagos, Nigeria
-        longitude: 3.3792,
-        accuracy: 10,
-        timestamp: Date.now(),
-      };
     }
+    
+    // Return mock location for development/fallback
+    return {
+      latitude: 6.5244, // Lagos, Nigeria
+      longitude: 3.3792,
+      accuracy: 10,
+      timestamp: Date.now(),
+    };
   }
 
   /**
@@ -81,26 +102,72 @@ export class LocationService {
     }
   ): Promise<boolean> {
     try {
-      const hasPermission = await this.requestLocationPermission();
-      if (!hasPermission) return false;
-
-      this.watchId = await Location.watchPositionAsync(
-        {
-          accuracy: options?.accuracy || Location.Accuracy.High,
-          timeInterval: options?.timeInterval || 5000, // 5 seconds
-          distanceInterval: options?.distanceInterval || 10, // 10 meters
-        },
-        (location) => {
-          callback({
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-            accuracy: location.coords.accuracy,
-            timestamp: location.timestamp,
-          });
+      // For web, skip permission check and try direct watch
+      if (typeof window !== 'undefined') {
+        try {
+          this.watchId = await Location.watchPositionAsync(
+            {
+              accuracy: options?.accuracy || Location.Accuracy.High,
+              timeInterval: options?.timeInterval || 5000, // 5 seconds
+              distanceInterval: options?.distanceInterval || 10, // 10 meters
+            },
+            (location) => {
+              callback({
+                latitude: location.coords.latitude,
+                longitude: location.coords.longitude,
+                accuracy: location.coords.accuracy,
+                timestamp: location.timestamp,
+              });
+            }
+          );
+          return true;
+        } catch (webError) {
+          console.log('Web location watch failed, using mock updates');
+          // For web fallback, simulate location updates with mock data
+          const mockLocation = await this.getCurrentLocation();
+          if (mockLocation) {
+            // Simulate location updates every 5 seconds
+            const intervalId = setInterval(() => {
+              // Add small random variations to simulate movement
+              const variation = 0.001; // ~100m variation
+              callback({
+                ...mockLocation,
+                latitude: mockLocation.latitude + (Math.random() - 0.5) * variation,
+                longitude: mockLocation.longitude + (Math.random() - 0.5) * variation,
+                timestamp: Date.now()
+              });
+            }, options?.timeInterval || 5000);
+            
+            // Store the interval ID as a mock watch ID
+            this.watchId = {
+              remove: () => clearInterval(intervalId)
+            } as any;
+            return true;
+          }
+          return false;
         }
-      );
+      } else {
+        // Native platforms - request permission first
+        const hasPermission = await this.requestLocationPermission();
+        if (!hasPermission) return false;
 
-      return true;
+        this.watchId = await Location.watchPositionAsync(
+          {
+            accuracy: options?.accuracy || Location.Accuracy.High,
+            timeInterval: options?.timeInterval || 5000, // 5 seconds
+            distanceInterval: options?.distanceInterval || 10, // 10 meters
+          },
+          (location) => {
+            callback({
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+              accuracy: location.coords.accuracy,
+              timestamp: location.timestamp,
+            });
+          }
+        );
+        return true;
+      }
     } catch (error) {
       console.error('Error starting location watch:', error);
       return false;
@@ -159,17 +226,19 @@ export class LocationService {
    */
   static async reverseGeocode(coords: LocationCoords): Promise<string> {
     try {
-      // In production, use Location.reverseGeocodeAsync
-      const result = await Location.reverseGeocodeAsync(coords);
-      if (result && result.length > 0) {
-        const address = result[0];
-        return `${address.name || ''} ${address.street || ''}, ${address.city || ''}, ${address.region || ''}`.trim();
+      // Try reverse geocoding for native platforms
+      if (typeof window === 'undefined') {
+        const result = await Location.reverseGeocodeAsync(coords);
+        if (result && result.length > 0) {
+          const address = result[0];
+          return `${address.name || ''} ${address.street || ''}, ${address.city || ''}, ${address.region || ''}`.trim();
+        }
       }
     } catch (error) {
       console.error('Reverse geocoding error:', error);
     }
 
-    // Fallback to mock address based on coordinates
+    // Fallback to mock address based on coordinates (for web and errors)
     return this.getMockAddress(coords);
   }
 

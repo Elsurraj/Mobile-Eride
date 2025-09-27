@@ -382,7 +382,7 @@ class SocketService {
   simulateRideComplete(rideId: string): void {
     console.log(`🎭 Socket Service: Simulating ride completion for ride ${rideId}`);
     this.stopMockRideUpdates(rideId);
-    this.handlers.onStatusUpdate?({
+    this.handlers.onStatusUpdate?.({
       rideId,
       status: 'completed',
       message: 'Ride completed successfully!'
@@ -408,7 +408,7 @@ class SocketService {
     };
     
     this.handlers.onRideCancelled?.(cancellationData);
-    this.handlers.onStatusUpdate?({
+    this.handlers.onStatusUpdate?.({
       rideId,
       status: 'cancelled',
       message: 'You cancelled this ride'
@@ -439,7 +439,7 @@ class SocketService {
     if (withReplacement) {
       // Simulate finding replacement driver after 2 seconds
       setTimeout(() => {
-        this.handlers.onStatusUpdate?({
+        this.handlers.onStatusUpdate?.({
           rideId,
           status: 'accepted',
           driver: {
@@ -458,7 +458,7 @@ class SocketService {
         });
       }, 2000);
     } else {
-      this.handlers.onStatusUpdate?({
+      this.handlers.onStatusUpdate?.({
         rideId,
         status: 'no_drivers',
         message: 'No replacement driver found. Please try again.'
