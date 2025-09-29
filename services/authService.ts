@@ -78,10 +78,15 @@ class AuthService extends BaseApiService {
     }
 
     try {
-      const result = await this.post<AuthResponse>('/api/v1/login/access-token', {
-        username,
-        password,
-      });
+      const form = new URLSearchParams();
+      form.append('username', username);
+      form.append('password', password);
+
+      const result = await this.post<AuthResponse>(
+        '/api/v1/login/access-token',
+        form,
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+      );
       
       return {
         success: result.success,
@@ -149,6 +154,7 @@ class AuthService extends BaseApiService {
       return await this.post<OTPVerifyResponse>('/api/v1/auth/otp/verify', {
         email,
         code,
+        purpose: 'login',
       });
     } catch (error) {
       console.warn('⚠️ Auth Service: OTP verify failed, falling back to mock');

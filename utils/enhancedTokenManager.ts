@@ -1,10 +1,26 @@
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
+interface TokenPayload {
+  sub: string;
+  exp: number;
+  iat: number;
+  otp_verified: boolean;
+  user_id: string;
+}
+
+interface StoredTokenData {
+  token: string;
+  otpVerified: boolean;
+  expiresAt: number;
+  userId: string;
+}
+
 interface DecodedToken {
   exp: number;
   user_id: string;
   email: string;
+  otp_verified?: boolean;
   [key: string]: any;
 }
 
@@ -91,7 +107,7 @@ class EnhancedTokenManager {
       }
       // Token is invalid, clear it
       if (token) {
-        await this.clearToken();
+        await this.clearAllData();
       }
       return null;
     } catch (error) {
@@ -117,7 +133,7 @@ class EnhancedTokenManager {
     }
   }
 
-  async clearToken(): Promise<void> {
+  async clearTokensAsync(): Promise<void> {
     try {
       await PlatformStorage.deleteItemAsync(this.TOKEN_KEY);
       await PlatformStorage.deleteItemAsync(this.REFRESH_TOKEN_KEY);
@@ -249,6 +265,139 @@ class EnhancedTokenManager {
     const otpVerified = await this.isOtpVerified();
     return Boolean(token && otpVerified);
   }
+
+  // Frontend-compatible methods
+  
+  /**
+   * Get stored token data synchronously (for immediate checks)
+   */
+  getTokenData(): StoredTokenData | null {
+    try {
+      // For mobile, we need to make this async-compatible
+      // This is a sync version for immediate checks
+      if (Platform.OS === 'web') {
+        try {
+          const token = localStorage.getItem('jwt_token');
+          const otpVerified = localStorage.getItem('otp_verified') === 'true';
+          if (!token) return null;
+          
+          const decoded = this.decodeToken(token);
+          if (!decoded) return null;
+          
+          return {
+            token,
+            otpVerified,
+            expiresAt: decoded.exp * 1000,
+            userId: decoded.user_id || decoded.sub,
+          };
+        } catch {
+          return null;
+        }
+      }
+      // For native, this will return null and caller should use async methods
+      return null;
+    } catch (error) {
+      console.error('Token data retrieval error:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Check if token exists and is valid (synchronous for web, async fallback for native)
+   */
+  hasValidToken(): boolean {
+    if (Platform.OS === 'web') {
+      const tokenData = this.getTokenData();
+      if (!tokenData) return false;
+      const now = Date.now();
+      return now < tokenData.expiresAt;
+    }
+    // For native platforms, this should be used with async methods
+    return false;
+  }
+
+  /**
+   * Check if token is expired (synchronous for web)
+   */
+  isTokenExpired(): boolean {
+    if (Platform.OS === 'web') {
+      const tokenData = this.getTokenData();
+      if (!tokenData) return true;
+      const now = Date.now();
+      return now >= tokenData.expiresAt;
+    }
+    // For native platforms, use async methods
+    return true;
+  }
+
+  /**
+   * Get authorization header value
+   */
+  async getAuthHeader(): Promise<string | null> {
+    const token = await this.getToken();
+    return token ? `Bearer ${token}` : null;
+  }
+
+  /**
+   * Get current user ID synchronously (web only)
+   */
+  getUserIdSync(): string | null {
+    if (Platform.OS === 'web') {
+      const tokenData = this.getTokenData();
+      return tokenData?.userId || null;
+    }
+    return null;
+  }
+
+  /**
+   * Check if user can access dashboard (authenticated + OTP verified)
+   */
+  async canAccessDashboard(): Promise<boolean> {
+    const token = await this.getToken();
+    const otpVerified = await this.isOtpVerified();
+    return Boolean(token && otpVerified);
+  }
+
+  /**
+   * Synchronous version of canAccessDashboard for route guards (web only)
+   */
+  canAccessDashboardSync(): boolean {
+    if (Platform.OS === 'web') {
+      return this.hasValidToken() && this.getTokenData()?.otpVerified === true;
+    }
+    return false;
+  }
+
+  /**
+   * Clear all stored token data (frontend-compatible)
+   */
+  clearToken(): void {
+    if (Platform.OS === 'web') {
+      try {
+        localStorage.removeItem('jwt_token');
+        localStorage.removeItem('refresh_token');
+        localStorage.removeItem('otp_verified');
+        localStorage.removeItem('user_data');
+      } catch (error) {
+        console.error('Error clearing tokens (sync):', error);
+      }
+    } else {
+      // For native, use the async version
+      this.clearAllData().catch(console.error);
+    }
+  }
+
+  /**
+   * Initialize token manager
+   */
+  initialize(): void {
+    console.log('Enhanced token manager initialized for mobile');
+  }
 }
 
 export const enhancedTokenManager = new EnhancedTokenManager();
+
+// Initialize on import
+enhancedTokenManager.initialize();
+
+export default enhancedTokenManager;

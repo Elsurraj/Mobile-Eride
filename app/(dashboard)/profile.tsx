@@ -64,9 +64,18 @@ const ProfileOption: React.FC<ProfileOptionProps> = ({
 };
 
 export default function ProfileScreen() {
-  const { user, logout } = useAuth();
+  const { user, logout, isLoading } = useAuth();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  
+  // Show loading if user data is not available
+  if (isLoading || !user) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.backgroundSecondary }}>
+        <Text style={{ color: colors.text }}>Loading profile...</Text>
+      </View>
+    );
+  }
 
   const handleLogout = () => {
     Alert.alert(
@@ -109,132 +118,25 @@ export default function ProfileScreen() {
     // TODO: Navigate to help screen
   };
 
-  const styles = StyleSheet.create({
-    container: {
-      flex: 1,
-    },
-    content: {
-      padding: Spacing.lg,
-      paddingBottom: Spacing['3xl'],
-    },
-    userInfoCard: {
-      backgroundColor: colors.background,
-      borderRadius: BorderRadius['2xl'],
-      padding: Spacing.xl,
-      marginBottom: Spacing['2xl'],
-      alignItems: 'center',
-      ...Shadows.lg,
-    },
-    avatarContainer: {
-      width: 80,
-      height: 80,
-      borderRadius: 40,
-      backgroundColor: colors.brand.secondary,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginBottom: Spacing.lg,
-    },
-    avatarText: {
-      fontSize: Typography.fontSize['2xl'],
-      fontWeight: Typography.fontWeight.bold,
-      color: colors.brand.primary,
-    },
-    userName: {
-      fontSize: Typography.fontSize['2xl'],
-      fontWeight: Typography.fontWeight.bold,
-      color: colors.text,
-      marginBottom: Spacing.xs,
-    },
-    userEmail: {
-      fontSize: Typography.fontSize.base,
-      color: colors.textSecondary,
-      marginBottom: Spacing.md,
-    },
-    roleBadge: {
-      backgroundColor: colors.brand.secondary,
-      paddingHorizontal: Spacing.md,
-      paddingVertical: Spacing.xs,
-      borderRadius: BorderRadius.full,
-    },
-    roleText: {
-      fontSize: Typography.fontSize.sm,
-      fontWeight: Typography.fontWeight.bold,
-      color: colors.brand.primary,
-      textTransform: 'capitalize',
-    },
-    sectionTitle: {
-      fontSize: Typography.fontSize.xl,
-      fontWeight: Typography.fontWeight.bold,
-      color: colors.text,
-      marginBottom: Spacing.lg,
-      marginTop: Spacing.md,
-    },
-    optionCard: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      padding: Spacing.lg,
-      borderRadius: BorderRadius.xl,
-      marginBottom: Spacing.md,
-      borderWidth: 1,
-    },
-    iconContainer: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginRight: Spacing.md,
-    },
-    optionText: {
-      flex: 1,
-    },
-    optionTitle: {
-      fontSize: Typography.fontSize.base,
-      fontWeight: Typography.fontWeight.semibold,
-      marginBottom: Spacing.xs / 2,
-    },
-    optionSubtitle: {
-      fontSize: Typography.fontSize.sm,
-    },
-    logoutButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: 'transparent',
-      borderColor: colors.error,
-      borderWidth: 1,
-      padding: Spacing.lg,
-      borderRadius: BorderRadius.xl,
-      marginTop: Spacing.xl,
-      ...Shadows.sm,
-    },
-    logoutText: {
-      fontSize: Typography.fontSize.base,
-      fontWeight: Typography.fontWeight.semibold,
-      color: colors.error,
-      marginLeft: Spacing.sm,
-    },
-  });
-
   return (
     <View style={styles.container}>
       <DashboardLayout title="Profile" showHeader={true}>
         <View style={styles.content}>
           {/* User Info Card */}
-          <View style={styles.userInfoCard}>
-            <View style={styles.avatarContainer}>
-              <Text style={styles.avatarText}>
+          <View style={[styles.userInfoCard, { backgroundColor: colors.background }]}>
+            <View style={[styles.avatarContainer, { backgroundColor: colors.brand.secondary }]}>
+              <Text style={[styles.avatarText, { color: colors.brand.primary }]}>
                 {getUserInitials(user?.full_name || user?.email)}
               </Text>
             </View>
-            <Text style={styles.userName}>
+            <Text style={[styles.userName, { color: colors.text }]}>
               {user?.full_name || 'User'}
             </Text>
-            <Text style={styles.userEmail}>
+            <Text style={[styles.userEmail, { color: colors.textSecondary }]}>
               {user?.email}
             </Text>
-            <View style={styles.roleBadge}>
-              <Text style={styles.roleText}>
+            <View style={[styles.roleBadge, { backgroundColor: colors.brand.secondary }]}>
+              <Text style={[styles.roleText, { color: colors.brand.primary }]}>
                 {user?.role || 'rider'}
               </Text>
             </View>
@@ -243,7 +145,7 @@ export default function ProfileScreen() {
           {/* Profile Details */}
           {user?.profile && (
             <>
-              <Text style={styles.sectionTitle}>Profile Details</Text>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>Profile Details</Text>
               
               {user.profile.phone_number && (
                 <View style={[styles.optionCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
@@ -306,7 +208,7 @@ export default function ProfileScreen() {
           )}
 
           {/* Account Settings */}
-          <Text style={styles.sectionTitle}>Account Settings</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Account Settings</Text>
           
           <ProfileOption
             icon="person-outline"
@@ -337,16 +239,113 @@ export default function ProfileScreen() {
 
           {/* Logout Button */}
           <TouchableOpacity
-            style={styles.logoutButton}
+            style={[styles.logoutButton, { borderColor: colors.error }]}
             onPress={handleLogout}
             activeOpacity={0.7}
           >
             <Ionicons name="log-out-outline" size={20} color={colors.error} />
-            <Text style={styles.logoutText}>Logout</Text>
+            <Text style={[styles.logoutText, { color: colors.error }]}>Logout</Text>
           </TouchableOpacity>
         </View>
       </DashboardLayout>
       <BottomNav />
     </View>
   );
-}
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  content: {
+    padding: Spacing.lg,
+    paddingBottom: Spacing['3xl'],
+  },
+  userInfoCard: {
+    borderRadius: BorderRadius['2xl'],
+    padding: Spacing.xl,
+    marginBottom: Spacing['2xl'],
+    alignItems: 'center',
+    ...Shadows.lg,
+  },
+  avatarContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.lg,
+  },
+  avatarText: {
+    fontSize: Typography.fontSize['2xl'],
+    fontWeight: Typography.fontWeight.bold,
+  },
+  userName: {
+    fontSize: Typography.fontSize['2xl'],
+    fontWeight: Typography.fontWeight.bold,
+    marginBottom: Spacing.xs,
+  },
+  userEmail: {
+    fontSize: Typography.fontSize.base,
+    marginBottom: Spacing.md,
+  },
+  roleBadge: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.full,
+  },
+  roleText: {
+    fontSize: Typography.fontSize.sm,
+    fontWeight: Typography.fontWeight.bold,
+    textTransform: 'capitalize',
+  },
+  sectionTitle: {
+    fontSize: Typography.fontSize.xl,
+    fontWeight: Typography.fontWeight.bold,
+    marginBottom: Spacing.lg,
+    marginTop: Spacing.md,
+  },
+  optionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.xl,
+    marginBottom: Spacing.md,
+    borderWidth: 1,
+  },
+  iconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: Spacing.md,
+  },
+  optionText: {
+    flex: 1,
+  },
+  optionTitle: {
+    fontSize: Typography.fontSize.base,
+    fontWeight: Typography.fontWeight.semibold,
+    marginBottom: Spacing.xs / 2,
+  },
+  optionSubtitle: {
+    fontSize: Typography.fontSize.sm,
+  },
+  logoutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.xl,
+    marginTop: Spacing.xl,
+    ...Shadows.sm,
+  },
+  logoutText: {
+    fontSize: Typography.fontSize.base,
+    fontWeight: Typography.fontWeight.semibold,
+    marginLeft: Spacing.sm,
+  },
+});
