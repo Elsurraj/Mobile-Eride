@@ -138,6 +138,22 @@ const CourierDashboard: React.FC = () => {
       color: colors.textLight,
       textAlign: 'center',
     },
+    roleBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.brand.primary + '10',
+      paddingHorizontal: Spacing.md,
+      paddingVertical: Spacing.xs,
+      borderRadius: BorderRadius.full,
+      marginTop: Spacing.sm,
+      marginBottom: Spacing.sm,
+    },
+    roleText: {
+      fontSize: Typography.fontSize.sm,
+      fontWeight: Typography.fontWeight.medium,
+      color: colors.brand.primary,
+      marginLeft: Spacing.xs,
+    },
   });
 
   return (
@@ -148,6 +164,10 @@ const CourierDashboard: React.FC = () => {
           <Text style={styles.welcomeMessage}>
             {getRoleWelcomeMessage(user?.role)}
           </Text>
+          <View style={styles.roleBadge}>
+            <Ionicons name="cube-outline" size={16} color={colors.brand.primary} />
+            <Text style={styles.roleText}>Courier Dashboard</Text>
+          </View>
           <Text style={styles.statusMessage}>
             {getStatusMessage(isOnline, user?.role)}
           </Text>

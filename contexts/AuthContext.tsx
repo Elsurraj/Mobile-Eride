@@ -9,7 +9,7 @@ interface User {
   full_name?: string;
   is_active: boolean;
   is_superuser: boolean;
-  role?: 'driver' | 'rider' | 'courier';
+  role: 'driver' | 'rider' | 'courier'; // Make role required
   onboarding_completed?: boolean;
   profile?: {
     phone_number?: string;
@@ -54,6 +54,21 @@ interface AuthContextType extends AuthState {
   checkAuthStatus: () => Promise<void>;
   resendOtp: (email?: string) => Promise<{ success: boolean; error?: string }>;
   resetPassword: (email: string) => Promise<{ success: boolean; error?: string }>;
+}
+
+// JWT decoding utility
+function decodeTokenSync(token: string): any {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    
+    const payload = parts[1];
+    const decoded = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
+    return decoded;
+  } catch (error) {
+    console.error('Error decoding token in AuthContext:', error);
+    return null;
+  }
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -185,24 +200,41 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         // Check if token is valid and not expired
         if (enhancedTokenManager.isTokenValid(token)) {
           const userId = await enhancedTokenManager.getUserId();
-          const otpVerified = await enhancedTokenManager.isOtpVerified();
+          const otpVerifiedFromStorage = await enhancedTokenManager.isOtpVerified();
+          const otpVerifiedFromToken = await enhancedTokenManager.isOtpVerifiedFromToken();
+          const userRole = await enhancedTokenManager.getUserRole();
           const userData = await enhancedTokenManager.getUserData();
+          
+          // Use OTP status from token if available, otherwise fall back to storage
+          const otpVerified = otpVerifiedFromToken !== null ? otpVerifiedFromToken : otpVerifiedFromStorage;
+          
+          console.log('🔍 Auth Status Check:', {
+            userId,
+            otpVerifiedFromStorage,
+            otpVerifiedFromToken,
+            otpVerified,
+            userRole,
+            hasUserData: !!userData
+          });
           
           if (userId && otpVerified) {
             // User is fully authenticated
             let userToSet = userData;
             
             if (!userData) {
-              // Create fallback user data
+              // Create fallback user data with role from JWT
               userToSet = {
                 id: userId,
                 email: 'user@example.com',
                 full_name: 'Demo User',
                 is_active: true,
                 is_superuser: false,
-                role: 'rider' as const,
+                role: (userRole as 'rider' | 'driver' | 'courier') || 'rider',
                 onboarding_completed: false,
               };
+            } else {
+              // Ensure role from token is prioritized over stored user data
+              userToSet.role = (userRole as 'rider' | 'driver' | 'courier') || userToSet.role || 'rider';
             }
             
             dispatch({ 
@@ -215,6 +247,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             });
           } else {
             // Token exists but OTP not verified, or user not found
+            console.log('⚠️ Token found but not fully authenticated', { userId, otpVerified });
             dispatch({ 
               type: 'INITIALIZE', 
               payload: { 
@@ -231,6 +264,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           dispatch({ type: 'LOGOUT' });
         }
       } else {
+        console.log('No token found, user not authenticated');
         dispatch({ 
           type: 'INITIALIZE', 
           payload: { 
@@ -344,16 +378,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       
       let userToStore = data.user;
       
-      // If the backend doesn't return user data, create a fallback user
+      // If the backend doesn't return user data, create a fallback user with role from JWT
       if (!userToStore) {
         console.log('⚠️ No user data returned from OTP verification, creating fallback');
+        
+        // Extract role from the JWT token
+        const decoded = decodeTokenSync(data.access_token);
+        const roleFromToken = decoded?.role || 'rider';
+        
         userToStore = {
-          id: '1', // Fallback ID
+          id: decoded?.sub || '1', // Use JWT subject as user ID
           email: state.userEmail,
           full_name: state.userEmail.split('@')[0], // Use email prefix as name
           is_active: true,
           is_superuser: false,
-          role: 'rider' as const,
+          role: roleFromToken as 'rider' | 'driver' | 'courier',
           onboarding_completed: false,
         };
       }
@@ -395,7 +434,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             full_name: state.userEmail.split('@')[0],
             is_active: true,
             is_superuser: false,
-            role: 'rider' as const,
+            role: 'rider' as 'rider' | 'driver' | 'courier',
             onboarding_completed: false,
           };
           

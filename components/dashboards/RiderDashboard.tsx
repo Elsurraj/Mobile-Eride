@@ -213,6 +213,21 @@ const RiderDashboard: React.FC = () => {
       fontWeight: Typography.fontWeight.bold,
       color: colors.brand.primary,
     },
+    roleBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.brand.primary + '10',
+      paddingHorizontal: Spacing.md,
+      paddingVertical: Spacing.xs,
+      borderRadius: BorderRadius.full,
+      marginTop: Spacing.sm,
+    },
+    roleText: {
+      fontSize: Typography.fontSize.sm,
+      fontWeight: Typography.fontWeight.medium,
+      color: colors.brand.primary,
+      marginLeft: Spacing.xs,
+    },
   });
 
   return (
@@ -223,6 +238,10 @@ const RiderDashboard: React.FC = () => {
           <Text style={styles.welcomeMessage}>
             {getRoleWelcomeMessage(user?.role)}
           </Text>
+          <View style={styles.roleBadge}>
+            <Ionicons name="person-outline" size={16} color={colors.brand.primary} />
+            <Text style={styles.roleText}>Rider Dashboard</Text>
+          </View>
         </View>
 
         {/* Wallet Balance */}

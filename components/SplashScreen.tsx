@@ -11,6 +11,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, BorderRadius } from '@/constants/theme';
+import SvgLogo from './SvgLogo';
 
 const { width, height } = Dimensions.get('window');
 
@@ -160,7 +161,7 @@ const SplashScreen: React.FC<SplashScreenProps> = ({
           <View style={styles.textContent}>
             {/* E-Ride Logo */}
             <View style={styles.logoContainer}>
-              <Ionicons name="car-sport" size={70} color={Colors.light.brand.secondary} />
+              <SvgLogo size={70} />
               <Text style={styles.logoText}>E-Ride</Text>
               
               {/* Health Status Indicator */}

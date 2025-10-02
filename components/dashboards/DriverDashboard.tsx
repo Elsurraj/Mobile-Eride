@@ -298,6 +298,22 @@ const DriverDashboard: React.FC = () => {
     buttonDisabled: {
       opacity: 0.6,
     },
+    roleBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.brand.primary + '10',
+      paddingHorizontal: Spacing.md,
+      paddingVertical: Spacing.xs,
+      borderRadius: BorderRadius.full,
+      marginTop: Spacing.sm,
+      marginBottom: Spacing.sm,
+    },
+    roleText: {
+      fontSize: Typography.fontSize.sm,
+      fontWeight: Typography.fontWeight.medium,
+      color: colors.brand.primary,
+      marginLeft: Spacing.xs,
+    },
   });
 
   return (
@@ -308,6 +324,10 @@ const DriverDashboard: React.FC = () => {
           <Text style={styles.welcomeMessage}>
             {getRoleWelcomeMessage(user?.role)}
           </Text>
+          <View style={styles.roleBadge}>
+            <Ionicons name="car-outline" size={16} color={colors.brand.primary} />
+            <Text style={styles.roleText}>Driver Dashboard</Text>
+          </View>
           <Text style={styles.statusMessage}>
             {getStatusMessage(isOnline, user?.role)}
           </Text>

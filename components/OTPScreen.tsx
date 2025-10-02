@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, BorderRadius } from '@/constants/theme';
+import SvgLogo from './SvgLogo';
 
 const { width } = Dimensions.get('window');
 
@@ -120,7 +121,7 @@ const OTPScreen: React.FC<OTPScreenProps> = ({
 
         {/* Logo */}
         <View style={styles.logoContainer}>
-          <Ionicons name="car-sport" size={60} color={Colors.light.brand.secondary} />
+          <SvgLogo size={60} />
           <Text style={styles.logoText}>E-Ride</Text>
         </View>
 

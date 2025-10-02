@@ -13,6 +13,7 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { enhancedTokenManager } from '@/utils/enhancedTokenManager';
 import { Colors, Typography, Spacing, BorderRadius, Shadows } from '@/constants/theme';
+import RoleDashboard from './RoleDashboard';
 
 const { width } = Dimensions.get('window');
 
@@ -160,42 +161,19 @@ const Dashboard: React.FC = () => {
           </View>
         </View>
 
-        {/* Main Content Area */}
-        <View style={styles.mainCard}>
-          <Text style={styles.mainCardTitle}>Dashboard Overview</Text>
-          <Text style={styles.mainCardText}>
-            Welcome to your E-Ride dashboard! You have successfully authenticated 
-            with 2FA (JWT + OTP verification) and can now access all secure features.
+        {/* Role-Based Dashboard Content */}
+        <RoleDashboard />
+        
+        {/* Debug Information */}
+        <View style={styles.debugCard}>
+          <Text style={styles.debugTitle}>Debug Information</Text>
+          <Text style={styles.debugText}>
+            User Role: {user?.role || 'Unknown'} | 
+            Token ID: {userId ? String(userId).substring(0, 8) : 'N/A'}...
           </Text>
-          
-          <View style={styles.overviewGrid}>
-            <View style={styles.overviewSection}>
-              <Text style={styles.overviewSectionTitle}>Recent Activity</Text>
-              <View style={styles.activityList}>
-                <Text style={styles.activityItem}>• Successfully logged in with 2FA</Text>
-                <Text style={styles.activityItem}>• OTP verification completed</Text>
-                <Text style={styles.activityItem}>• Dashboard access granted</Text>
-              </View>
-            </View>
-            
-            <View style={styles.overviewSection}>
-              <Text style={styles.overviewSectionTitle}>System Status</Text>
-              <View style={styles.statusList}>
-                <View style={styles.statusItem}>
-                  <View style={[styles.statusIndicator, { backgroundColor: '#10B981' }]} />
-                  <Text style={styles.statusText}>Backend API - Online</Text>
-                </View>
-                <View style={styles.statusItem}>
-                  <View style={[styles.statusIndicator, { backgroundColor: '#10B981' }]} />
-                  <Text style={styles.statusText}>Redis Cache - Connected</Text>
-                </View>
-                <View style={styles.statusItem}>
-                  <View style={[styles.statusIndicator, { backgroundColor: '#10B981' }]} />
-                  <Text style={styles.statusText}>Session Management - Active</Text>
-                </View>
-              </View>
-            </View>
-          </View>
+          <Text style={styles.debugText}>
+            Session expires in: {hoursUntilExpiry > 0 ? `${hoursUntilExpiry} hours` : 'Soon'}
+          </Text>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -451,6 +429,26 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 14,
     color: '#6B7280',
+  },
+  debugCard: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  debugTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 8,
+  },
+  debugText: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontFamily: 'monospace',
+    marginBottom: 4,
   },
 });
 

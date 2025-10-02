@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { Colors, Typography, Spacing, BorderRadius } from '@/constants/theme';
+import SvgLogo from '@/components/SvgLogo';
 
 export default function WelcomeScreen() {
   const [isLoading, setIsLoading] = useState(false);
@@ -58,7 +59,7 @@ export default function WelcomeScreen() {
             {/* Header */}
             <View style={styles.header}>
               <View style={styles.logoContainer}>
-                <Ionicons name="car-sport" size={60} color={Colors.light.brand.secondary} />
+                <SvgLogo size={60} />
                 <Text style={styles.logoText}>E-Ride</Text>
               </View>
             </View>

@@ -17,10 +17,13 @@ interface StoredTokenData {
 }
 
 interface DecodedToken {
-  exp: number;
-  user_id: string;
-  email: string;
-  otp_verified?: boolean;
+  sub: string; // Subject (user ID)
+  exp: number; // Expiration timestamp
+  iat?: number; // Issued at
+  otp_verified: boolean; // OTP verification status
+  role: string; // User role (rider, driver, courier)
+  user_id?: string; // Alternative user ID field
+  email?: string; // Email (may not be in JWT)
   [key: string]: any;
 }
 
@@ -79,11 +82,40 @@ class EnhancedTokenManager {
   private readonly USER_DATA_KEY = 'user_data';
   private readonly ONBOARDING_COMPLETED_KEY = 'onboarding_completed';
 
-  // Decode JWT token (simplified version without external library)
+  // Decode JWT token with proper validation
   private decodeToken(token: string): DecodedToken | null {
     try {
-      const payload = token.split('.')[1];
+      const parts = token.split('.');
+      if (parts.length !== 3) {
+        console.error('Invalid JWT format: token does not have 3 parts');
+        return null;
+      }
+      
+      const payload = parts[1];
       const decoded = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
+      
+      // Validate required fields
+      if (!decoded.sub && !decoded.user_id) {
+        console.error('Invalid JWT: missing subject/user_id');
+        return null;
+      }
+      if (!decoded.exp) {
+        console.error('Invalid JWT: missing expiration');
+        return null;
+      }
+      
+      // Normalize user ID field
+      if (!decoded.sub && decoded.user_id) {
+        decoded.sub = decoded.user_id;
+      }
+      
+      console.log('🔍 Decoded JWT:', {
+        sub: decoded.sub,
+        exp: new Date(decoded.exp * 1000),
+        otp_verified: decoded.otp_verified,
+        role: decoded.role
+      });
+      
       return decoded;
     } catch (error) {
       console.error('Error decoding token:', error);
@@ -156,8 +188,9 @@ class EnhancedTokenManager {
       if (!token) return null;
       
       const decoded = this.decodeToken(token);
-      // Convert user_id to string to ensure consistency
-      return decoded?.user_id ? String(decoded.user_id) : null;
+      // Use 'sub' field as primary, fallback to user_id
+      const userId = decoded?.sub || decoded?.user_id;
+      return userId ? String(userId) : null;
     } catch (error) {
       console.error('Error getting user ID:', error);
       return null;
@@ -384,6 +417,48 @@ class EnhancedTokenManager {
     } else {
       // For native, use the async version
       this.clearAllData().catch(console.error);
+    }
+  }
+
+  // Role Management Methods
+  async getUserRole(): Promise<string | null> {
+    try {
+      const token = await PlatformStorage.getItemAsync(this.TOKEN_KEY);
+      if (!token) return null;
+      
+      const decoded = this.decodeToken(token);
+      return decoded?.role || null;
+    } catch (error) {
+      console.error('Error getting user role:', error);
+      return null;
+    }
+  }
+
+  getUserRoleSync(): string | null {
+    if (Platform.OS === 'web') {
+      const tokenData = this.getTokenData();
+      if (!tokenData) return null;
+      
+      try {
+        const decoded = this.decodeToken(tokenData.token);
+        return decoded?.role || null;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  async isOtpVerifiedFromToken(): Promise<boolean> {
+    try {
+      const token = await PlatformStorage.getItemAsync(this.TOKEN_KEY);
+      if (!token) return false;
+      
+      const decoded = this.decodeToken(token);
+      return decoded?.otp_verified || false;
+    } catch (error) {
+      console.error('Error checking OTP verification from token:', error);
+      return false;
     }
   }
 
