@@ -462,6 +462,19 @@ class EnhancedTokenManager {
     }
   }
 
+  async getOnboardingCompletedFromToken(): Promise<boolean> {
+    try {
+      const token = await PlatformStorage.getItemAsync(this.TOKEN_KEY);
+      if (!token) return false;
+    
+      const decoded = this.decodeToken(token);
+      return decoded?.onboarding_completed ?? false;
+    } catch (error) {
+      console.error('Error getting onboarding status from token:', error);
+      return false;
+    }
+  }
+
   /**
    * Initialize token manager
    */
