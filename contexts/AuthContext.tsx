@@ -9,12 +9,14 @@ interface User {
   full_name?: string;
   is_active: boolean;
   is_superuser: boolean;
-  role: 'driver' | 'rider' | 'courier'; // Make role required
+  role: 'driver' | 'rider' | 'courier';
   onboarding_completed?: boolean;
   profile?: {
     phone_number?: string;
-    profile_picture?: string;
+    emergency_contact_name?: string;
+    emergency_contact_phone?: string;
     preferences?: any;
+    profile_completed_at?: string;
   };
 }
 
@@ -54,9 +56,10 @@ interface AuthContextType extends AuthState {
   checkAuthStatus: () => Promise<void>;
   resendOtp: (email?: string) => Promise<{ success: boolean; error?: string }>;
   resetPassword: (email: string) => Promise<{ success: boolean; error?: string }>;
+  fetchUserProfile: () => Promise<User | null>;
 }
 
-// JWT decoding utility
+// JWT decoding utility (kept for verifyOtp fallback)
 function decodeTokenSync(token: string): any {
   try {
     const parts = token.split('.');
@@ -160,7 +163,7 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
       return {
         ...initialState,
         initialized: true,
-        isBackendHealthy: state.isBackendHealthy, // Preserve backend health status
+        isBackendHealthy: state.isBackendHealthy,
       };
     
     default:
@@ -171,19 +174,16 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [state, dispatch] = useReducer(authReducer, initialState);
 
-  // Initialize health check and check for existing token on app start
   useEffect(() => {
     initializeApp();
   }, []);
 
   const initializeApp = async () => {
     try {
-      // Initialize health check first
       const healthStatus = await healthService.quickHealthCheck();
       dispatch({ type: 'SET_BACKEND_HEALTH', payload: healthStatus });
       console.log('🔍 Backend health status:', healthStatus ? 'Healthy' : 'Offline');
       
-      // Then check auth status
       await checkAuthStatus();
     } catch (error) {
       console.error('Error initializing app:', error);
@@ -192,20 +192,80 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+  const fetchUserProfile = async (): Promise<User | null> => {
+  try {
+    const token = await enhancedTokenManager.getToken();
+    if (!token) {
+      console.error('No token available to fetch user profile');
+      return null;
+    }
+
+    // Fetch base user data
+    const userResponse = await fetch(`${process.env.EXPO_PUBLIC_API_URL}/api/v1/users/me`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    if (!userResponse.ok) {
+      console.error('Failed to fetch user data from /users/me');
+    }
+
+    const userData = userResponse.ok ? await userResponse.json() : null;
+    console.log('✅ Fetched user data:', userData);
+
+    // Fetch onboarding status and profile data
+    const onboardingResponse = await fetch(`${process.env.EXPO_PUBLIC_API_URL}/api/v1/onboarding/status`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!onboardingResponse.ok) {
+        console.error('Failed to fetch onboarding status');
+      }
+
+      const onboardingData = onboardingResponse.ok ? await onboardingResponse.json() : null;
+      console.log('✅ Fetched onboarding status:', onboardingData);
+
+      // Combine both responses into a single user object
+      const combinedUser: User = {
+        // Base user data from /users/me
+        id: userData?.id,
+        email: userData?.email,
+        full_name: userData?.full_name,
+        is_active: userData?.is_active,
+        is_superuser: userData?.is_superuser,
+        role: userData?.role,
+        // Onboarding status from /onboarding/status
+        onboarding_completed: onboardingData?.onboarding_completed,
+        // Profile data from /onboarding/status
+        profile: onboardingData?.onboarding_profile || undefined,
+      };
+
+      console.log('✅ Combined user profile:', combinedUser);
+      return combinedUser;
+    } catch (error) {
+      console.error('❌ Error fetching user profile:', error);
+      return null;
+    }
+  };
+
   const checkAuthStatus = async () => {
     dispatch({ type: 'SET_LOADING', payload: true });
     try {
       const token = await enhancedTokenManager.getToken();
       if (token) {
-        // Check if token is valid and not expired
         if (enhancedTokenManager.isTokenValid(token)) {
           const userId = await enhancedTokenManager.getUserId();
           const otpVerifiedFromStorage = await enhancedTokenManager.isOtpVerified();
           const otpVerifiedFromToken = await enhancedTokenManager.isOtpVerifiedFromToken();
           const userRole = await enhancedTokenManager.getUserRole();
+          const onboardingCompletedFromToken = await enhancedTokenManager.getOnboardingCompletedFromToken();
           const userData = await enhancedTokenManager.getUserData();
           
-          // Use OTP status from token if available, otherwise fall back to storage
           const otpVerified = otpVerifiedFromToken !== null ? otpVerifiedFromToken : otpVerifiedFromStorage;
           
           console.log('🔍 Auth Status Check:', {
@@ -214,27 +274,41 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             otpVerifiedFromToken,
             otpVerified,
             userRole,
+            onboardingCompletedFromToken,
             hasUserData: !!userData
           });
           
           if (userId && otpVerified) {
-            // User is fully authenticated
             let userToSet = userData;
             
             if (!userData) {
-              // Create fallback user data with role from JWT
-              userToSet = {
+              // Create fallback user data with role and onboarding from JWT
+              const fallbackUser = {
                 id: userId,
                 email: 'user@example.com',
                 full_name: 'Demo User',
                 is_active: true,
                 is_superuser: false,
                 role: (userRole as 'rider' | 'driver' | 'courier') || 'rider',
-                onboarding_completed: false,
+                onboarding_completed: onboardingCompletedFromToken,
               };
+
+              // Fetch full user profile from backend to get profile data
+              const fullUser = await fetchUserProfile();
+              userToSet = fullUser || fallbackUser;
             } else {
-              // Ensure role from token is prioritized over stored user data
-              userToSet.role = (userRole as 'rider' | 'driver' | 'courier') || userToSet.role || 'rider';
+              // Prioritize token values over stored data
+              userToSet = {
+                ...userData,
+                role: (userRole as 'rider' | 'driver' | 'courier') || userData.role || 'rider',
+                onboarding_completed: onboardingCompletedFromToken ?? userData.onboarding_completed ?? false,
+              };
+
+              // Fetch full profile to ensure latest data is available
+              const fullUser = await fetchUserProfile();
+              if (fullUser) {
+                userToSet = fullUser; // Use fresh data from backend
+              }
             }
             
             dispatch({ 
@@ -246,7 +320,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
               } 
             });
           } else {
-            // Token exists but OTP not verified, or user not found
             console.log('⚠️ Token found but not fully authenticated', { userId, otpVerified });
             dispatch({ 
               type: 'INITIALIZE', 
@@ -258,7 +331,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             });
           }
         } else {
-          // Token is expired or invalid
           console.log('Token is expired or invalid, clearing authentication');
           await enhancedTokenManager.clearAllData();
           dispatch({ type: 'LOGOUT' });
@@ -289,7 +361,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const result = await authService.login(credentials.username, credentials.password);
       
       if (result.success && result.token) {
-        // Store token (OTP not verified yet)
         await enhancedTokenManager.setTokenWithOtpStatus(result.token, false);
         
         dispatch({ 
@@ -297,7 +368,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           payload: { email: credentials.username } 
         });
         
-        // Log OTP for development if available
         if (result.otp_code && process.env.EXPO_PUBLIC_DEV_MODE === 'true') {
           console.log('🔐 DEV MODE - OTP CODE:', result.otp_code);
         }
@@ -322,13 +392,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       
       if (result.success) {
         console.log('✅ Registration successful, attempting auto-login...');
-        
-        // Auto-login after successful registration
         const loginResult = await login({ 
           username: credentials.email, 
           password: credentials.password 
         });
-        
         return loginResult;
       } else {
         throw new Error(result.error || 'Registration failed');
@@ -378,26 +445,30 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       
       let userToStore = data.user;
       
-      // If the backend doesn't return user data, create a fallback user with role from JWT
       if (!userToStore) {
         console.log('⚠️ No user data returned from OTP verification, creating fallback');
         
-        // Extract role from the JWT token
         const decoded = decodeTokenSync(data.access_token);
         const roleFromToken = decoded?.role || 'rider';
+        const onboardingFromToken = decoded?.onboarding_completed ?? false;
+
+        // Fetch full user profile from backend instead of using fallback
+        userToStore = await fetchUserProfile();
         
-        userToStore = {
-          id: decoded?.sub || '1', // Use JWT subject as user ID
-          email: state.userEmail,
-          full_name: state.userEmail.split('@')[0], // Use email prefix as name
-          is_active: true,
-          is_superuser: false,
-          role: roleFromToken as 'rider' | 'driver' | 'courier',
-          onboarding_completed: false,
-        };
+        if (!userToStore) {
+          // Fallback if backend call fails
+          userToStore = {
+            id: decoded?.sub || '1',
+            email: state.userEmail,
+            full_name: state.userEmail.split('@')[0],
+            is_active: true,
+            is_superuser: false,
+            role: roleFromToken as 'rider' | 'driver' | 'courier',
+            onboarding_completed: onboardingFromToken,
+          };
+        }
       }
       
-      // Ensure onboarding_completed field exists
       if (userToStore.onboarding_completed === undefined) {
         userToStore.onboarding_completed = false;
       }
@@ -407,7 +478,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         onboarding_completed: userToStore.onboarding_completed
       });
       
-      // Update token as verified and store user data
       await enhancedTokenManager.setTokenWithOtpStatus(data.access_token, true, userToStore);
       
       dispatch({ 
@@ -420,11 +490,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     } catch (error: any) {
       console.error('❌ OTP verification failed:', error);
       
-      // If OTP verification fails due to backend issues, try fallback verification
       if (error.message?.includes('fetch') || error.message?.includes('Network') || !state.isBackendHealthy) {
         console.log('🔄 Backend unavailable, attempting fallback OTP verification');
         
-        // Simple fallback: accept 123456 or any 6-digit code in development
         if (otpCode === '123456' || (process.env.EXPO_PUBLIC_DEV_MODE === 'true' && otpCode.length === 6)) {
           console.log('✅ Fallback OTP verification successful');
           
@@ -435,10 +503,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             is_active: true,
             is_superuser: false,
             role: 'rider' as 'rider' | 'driver' | 'courier',
-            onboarding_completed: false,
+            onboarding_completed: false, // Fallback assumes not onboarded
           };
           
-          // Create a mock token
           const mockToken = 'fallback_jwt_token_' + Date.now();
           await enhancedTokenManager.setTokenWithOtpStatus(mockToken, true, fallbackUser);
           
@@ -485,7 +552,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         throw new Error(data.message || 'Failed to resend OTP');
       }
       
-      // Log OTP for development if available
       if (data.dev_otp && process.env.EXPO_PUBLIC_DEV_MODE === 'true') {
         console.log('🔐 DEV MODE - RESEND OTP CODE:', data.dev_otp);
       }
@@ -531,7 +597,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     dispatch({ type: 'SET_LOADING', payload: true });
     
     try {
-      // Call backend logout if available
       if (state.isBackendHealthy) {
         try {
           const result = await authService.logout();
@@ -545,65 +610,103 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         }
       }
       
-      // Clear all stored data
       await enhancedTokenManager.clearAllData();
       console.log('✅ Token manager data cleared');
       
-      // Reset all authentication state
       dispatch({ type: 'LOGOUT' });
       console.log('✅ Auth state reset');
       
       console.log('🔓 Logout completed successfully');
     } catch (error) {
       console.error('❌ Error during logout:', error);
-      // Even if there's an error, still reset the state to ensure user is logged out
       dispatch({ type: 'LOGOUT' });
     }
   };
 
   const updateUser = (userData: Partial<User>) => {
-    if (state.user) {
-      const updatedUser = { ...state.user, ...userData };
-      dispatch({ type: 'SET_USER', payload: updatedUser });
-    }
-  };
+  if (state.user) {
+    const updatedUser = { 
+      ...state.user, 
+      ...userData,
+      // Ensure profile is preserved if not being updated
+      profile: userData.profile || state.user.profile
+    };
+    dispatch({ type: 'SET_USER', payload: updatedUser });
+    // Optionally save to storage as well
+    enhancedTokenManager.setUserData(updatedUser).catch(console.error);
+  }
+};
 
   const completeOnboarding = async (profileData?: any): Promise<{ success: boolean; error?: string }> => {
-    console.log('🎯 Starting onboarding completion...');
+    console.log('🎯 Starting onboarding completion with backend sync...');
     dispatch({ type: 'SET_LOADING', payload: true });
     dispatch({ type: 'SET_ERROR', payload: null });
 
     try {
-      const currentUser = state.user || {
-        id: '1',
-        email: 'user@example.com',
-        full_name: 'Demo User',
-        is_active: true,
-        is_superuser: false,
-        role: 'rider' as const,
-        onboarding_completed: false,
+      // Always call the backend first
+      const token = await enhancedTokenManager.getToken();
+      if (!token) {
+        throw new Error('No authentication token available');
+      }
+
+      const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}/api/v1/onboarding/complete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          phone_number: profileData?.phone_number,
+          emergency_contact_name: profileData?.emergency_contact,
+          emergency_contact_phone: profileData?.emergency_phone,
+          preferences: profileData?.preferences,
+          skip_profile: !profileData || Object.keys(profileData).length === 0,
+        }),
+      });
+
+      const data = await response.json();
+      console.log('✅ Backend onboarding response:', { status: response.status, data });
+
+      if (!response.ok) {
+        const errorMessage = data.detail || data.message || 'Failed to complete onboarding';
+        throw new Error(errorMessage);
+      }
+
+      // Update local state with the returned user (which has onboarding_completed: true)
+      const updatedUser = {
+        ...state.user,
+        ...data.user,
+        onboarding_completed: true,
+        profile: profileData || state.user?.profile,
       };
 
-      const updatedUser = { 
-        ...currentUser, 
-        onboarding_completed: true,
-        profile: {
-          ...currentUser.profile,
-          ...profileData
-        }
-      };
-      
-      // Update stored user data
       await enhancedTokenManager.setUserData(updatedUser);
       dispatch({ type: 'SET_USER', payload: updatedUser });
       dispatch({ type: 'SET_ONBOARDING_STATUS', payload: true });
       dispatch({ type: 'SET_LOADING', payload: false });
 
-      console.log('✅ Onboarding completed successfully');
+      console.log('✅ Onboarding completed successfully with backend sync');
       return { success: true };
     } catch (error: any) {
       console.error('❌ Onboarding completion error:', error);
+      
+      // Optional: Fallback to local-only completion if backend is down
+      if (!state.isBackendHealthy) {
+        console.warn('⚠️ Backend unavailable, falling back to local onboarding completion');
+        const fallbackUser = {
+          ...state.user,
+          onboarding_completed: true,
+          profile: profileData || state.user?.profile,
+        };
+        await enhancedTokenManager.setUserData(fallbackUser);
+        dispatch({ type: 'SET_USER', payload: fallbackUser });
+        dispatch({ type: 'SET_ONBOARDING_STATUS', payload: true });
+        dispatch({ type: 'SET_LOADING', payload: false });
+        return { success: true };
+      }
+
       dispatch({ type: 'SET_ERROR', payload: error.message });
+      dispatch({ type: 'SET_LOADING', payload: false });
       return { success: false, error: error.message };
     }
   };
@@ -624,6 +727,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     checkAuthStatus,
     resendOtp,
     resetPassword,
+    fetchUserProfile,
   };
 
   return (

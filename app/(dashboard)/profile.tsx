@@ -7,6 +7,8 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+// Import router from expo-router
+import { router } from 'expo-router'; 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useAuth } from '@/contexts/AuthContext';
 import { Colors, Typography, Spacing, BorderRadius, Shadows } from '@/constants/theme';
@@ -103,19 +105,20 @@ export default function ProfileScreen() {
     );
   };
 
+  // Replace the handlers inside the component with the router.push versions
   const handlePersonalInfo = () => {
-    console.log('Navigate to personal information');
-    // TODO: Navigate to personal info screen
+    // console.log('Navigate to personal information'); // Remove or comment out
+    router.push('/(dashboard)/profile/edit'); // Use router.push
   };
 
   const handleAppSettings = () => {
-    console.log('Navigate to app settings');
-    // TODO: Navigate to settings screen
+    // console.log('Navigate to app settings'); // Remove or comment out
+    router.push('/(dashboard)/profile/settings'); // Use router.push
   };
 
   const handleHelpSupport = () => {
-    console.log('Navigate to help & support');
-    // TODO: Navigate to help screen
+    // console.log('Navigate to help & support'); // Remove or comment out
+    router.push('/(dashboard)/profile/help'); // Use router.push
   };
 
   return (
