@@ -1,5 +1,5 @@
 import * as Location from 'expo-location';
-import { Alert } from 'react-native';
+import { Alert, Platform } from 'react-native';
 
 export interface LocationCoords {
   latitude: number;
@@ -16,82 +16,129 @@ export class LocationService {
   private static watchId: Location.LocationSubscription | null = null;
 
   /**
-   * Request location permissions
+   * Request location permissions explicitly.
+   * This function now logs the permission status and handles different states.
    */
   static async requestLocationPermission(): Promise<boolean> {
     try {
-      const { status: foregroundStatus } = await Location.requestForegroundPermissionsAsync();
-      
-      if (foregroundStatus !== 'granted') {
-        Alert.alert(
-          'Location Permission Required',
-          'Please enable location permission to use ride booking features.',
-          [{ text: 'OK' }]
-        );
-        return false;
-      }
+      // Check if we're on a native platform (iOS/Android) vs web
+      if (Platform.OS !== 'web') {
+        console.log('LocationService: Requesting foreground location permission...');
+        const { status: foregroundStatus, permissions } = await Location.requestForegroundPermissionsAsync();
+        console.log('LocationService: Permission request result - Status:', foregroundStatus, 'Permissions:', permissions);
 
-      return true;
+        if (foregroundStatus === 'granted') {
+          console.log('LocationService: Permission granted.');
+          return true;
+        } else if (foregroundStatus === 'denied') {
+          console.warn('LocationService: Permission denied by user.');
+          Alert.alert(
+            'Location Permission Denied',
+            'This app needs location permission to find nearby drivers and track your ride. Please enable it in settings.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Open Settings', onPress: () => Location.openSettings() }
+            ]
+          );
+          return false;
+        } else if (foregroundStatus === 'undetermined') {
+          console.warn('LocationService: Permission status is undetermined.');
+          return false;
+        } else {
+          console.warn('LocationService: Permission status is unknown or restricted:', foregroundStatus);
+          Alert.alert(
+            'Location Permission Required',
+            'Location permission is required, but the status is unclear. Please check settings.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Open Settings', onPress: () => Location.openSettings() }
+            ]
+          );
+          return false;
+        }
+      } else {
+        // On web, permissions are usually handled by the browser prompt
+        console.log('LocationService: Web platform - permission handled by browser.');
+        return true;
+      }
     } catch (error) {
-      console.error('Error requesting location permission:', error);
+      console.error('LocationService: Error requesting location permission:', error);
       return false;
     }
   }
 
   /**
-   * Get current GPS location
+   * Get current GPS location.
+   * This function now prioritizes real GPS data and handles permission explicitly.
    */
   static async getCurrentLocation(): Promise<LocationData | null> {
+    console.log('LocationService: Attempting to get current location...');
     try {
-      // For web, skip permission check and try direct location access
-      if (typeof window !== 'undefined' && window.navigator?.geolocation) {
-        try {
-          const location = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.High,
-            timeoutMs: 10000,
-          });
-
-          return {
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-            accuracy: location.coords.accuracy,
-            timestamp: location.timestamp,
-          };
-        } catch (locationError) {
-          console.log('Location access failed, using mock location');
-        }
-      } else {
-        // Native platforms - request permission first
+      // Step 1: Request permission first (only on native)
+      if (Platform.OS !== 'web') {
         const hasPermission = await this.requestLocationPermission();
-        if (!hasPermission) return null;
-
-        const location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High,
-          timeoutMs: 10000,
-        });
-
-        return {
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-          accuracy: location.coords.accuracy,
-          timestamp: location.timestamp,
-        };
+        if (!hasPermission) {
+          console.warn('LocationService: Permission denied or not granted, cannot get location.');
+          return null;
+        }
       }
-    } catch (error) {
-      console.error('Error getting current location:', error);
+
+      console.log('LocationService: Permission check passed, attempting to get position...');
+      // Step 2: Attempt to get the real location
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+        timeoutMs: 15000, // 15 seconds
+        maximumAge: 10000, // Accept cached location up to 10 seconds old
+      });
+
+      console.log('LocationService: Successfully got real location:', location.coords);
+
+      const result: LocationData = {
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        accuracy: location.coords.accuracy,
+        timestamp: location.timestamp,
+      };
+      return result;
+
+    } catch (error: any) {
+      console.error('LocationService: Error getting current location via GPS:', error.message || error);
+
+      // Check the specific error type
+      if (error?.code === 'E_LOCATION_UNAUTHORIZED' || error?.message?.includes('Not authorized')) {
+        console.warn('LocationService: LocationPermissionError occurred after permission check.', error);
+        Alert.alert(
+          'Location Access Denied',
+          'The app has permission, but the system denied access. Please ensure Location Services are ON and the app has access.',
+          [
+            { text: 'OK' },
+            { text: 'Open Settings', onPress: () => Location.openSettings() }
+          ]
+        );
+        return null;
+      } else if (error?.code === 'E_LOCATION_TIMEOUT' || error?.message?.includes('timeout')) {
+        console.warn('LocationService: GPS timeout occurred.');
+        Alert.alert('Location Error', 'Timed out waiting for location. Please try again.');
+      } else if (error?.code === 'E_LOCATION_UNAVAILABLE' || error?.message?.includes('unavailable')) {
+        console.warn('LocationService: Location services unavailable.');
+        Alert.alert(
+          'Location Error',
+          'Location services are unavailable. Please check your device settings.'
+        );
+      } else {
+        Alert.alert(
+          'Location Error',
+          `Failed to get location: ${error.message || 'Unknown error'}`
+        );
+      }
+
+      console.warn('LocationService: Failed to get location, returning null.');
+      return null;
     }
-    
-    // Return mock location for development/fallback
-    return {
-      latitude: 6.5244, // Lagos, Nigeria
-      longitude: 3.3792,
-      accuracy: 10,
-      timestamp: Date.now(),
-    };
   }
 
   /**
-   * Start watching location changes
+   * Start watching location changes (primarily for driver during active ride).
    */
   static async startLocationWatch(
     callback: (location: LocationData) => void,
@@ -102,74 +149,35 @@ export class LocationService {
     }
   ): Promise<boolean> {
     try {
-      // For web, skip permission check and try direct watch
-      if (typeof window !== 'undefined') {
-        try {
-          this.watchId = await Location.watchPositionAsync(
-            {
-              accuracy: options?.accuracy || Location.Accuracy.High,
-              timeInterval: options?.timeInterval || 5000, // 5 seconds
-              distanceInterval: options?.distanceInterval || 10, // 10 meters
-            },
-            (location) => {
-              callback({
-                latitude: location.coords.latitude,
-                longitude: location.coords.longitude,
-                accuracy: location.coords.accuracy,
-                timestamp: location.timestamp,
-              });
-            }
-          );
-          return true;
-        } catch (webError) {
-          console.log('Web location watch failed, using mock updates');
-          // For web fallback, simulate location updates with mock data
-          const mockLocation = await this.getCurrentLocation();
-          if (mockLocation) {
-            // Simulate location updates every 5 seconds
-            const intervalId = setInterval(() => {
-              // Add small random variations to simulate movement
-              const variation = 0.001; // ~100m variation
-              callback({
-                ...mockLocation,
-                latitude: mockLocation.latitude + (Math.random() - 0.5) * variation,
-                longitude: mockLocation.longitude + (Math.random() - 0.5) * variation,
-                timestamp: Date.now()
-              });
-            }, options?.timeInterval || 5000);
-            
-            // Store the interval ID as a mock watch ID
-            this.watchId = {
-              remove: () => clearInterval(intervalId)
-            } as any;
-            return true;
-          }
+      // Request permission first on native
+      if (Platform.OS !== 'web') {
+        const hasPermission = await this.requestLocationPermission();
+        if (!hasPermission) {
+          console.warn('LocationService: Permission denied for location watch.');
           return false;
         }
-      } else {
-        // Native platforms - request permission first
-        const hasPermission = await this.requestLocationPermission();
-        if (!hasPermission) return false;
-
-        this.watchId = await Location.watchPositionAsync(
-          {
-            accuracy: options?.accuracy || Location.Accuracy.High,
-            timeInterval: options?.timeInterval || 5000, // 5 seconds
-            distanceInterval: options?.distanceInterval || 10, // 10 meters
-          },
-          (location) => {
-            callback({
-              latitude: location.coords.latitude,
-              longitude: location.coords.longitude,
-              accuracy: location.coords.accuracy,
-              timestamp: location.timestamp,
-            });
-          }
-        );
-        return true;
       }
+
+      this.watchId = await Location.watchPositionAsync(
+        {
+          accuracy: options?.accuracy || Location.Accuracy.High,
+          timeInterval: options?.timeInterval || 5000, // 5 seconds
+          distanceInterval: options?.distanceInterval || 10, // 10 meters
+        },
+        (location) => {
+          console.log('LocationService: New location from watch:', location.coords);
+          callback({
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+            accuracy: location.coords.accuracy,
+            timestamp: location.timestamp,
+          });
+        }
+      );
+      console.log('LocationService: Started watching location.');
+      return true;
     } catch (error) {
-      console.error('Error starting location watch:', error);
+      console.error('LocationService: Error starting location watch:', error);
       return false;
     }
   }
@@ -222,88 +230,77 @@ export class LocationService {
   }
 
   /**
-   * Mock reverse geocoding (convert coordinates to address)
+   * Reverse geocoding (convert coordinates to address) using expo-location.
    */
   static async reverseGeocode(coords: LocationCoords): Promise<string> {
     try {
-      // Try reverse geocoding for native platforms
-      if (typeof window === 'undefined') {
-        const result = await Location.reverseGeocodeAsync(coords);
-        if (result && result.length > 0) {
-          const address = result[0];
-          return `${address.name || ''} ${address.street || ''}, ${address.city || ''}, ${address.region || ''}`.trim();
-        }
+      console.log('LocationService: Attempting reverse geocode for:', coords);
+      const result = await Location.reverseGeocodeAsync(coords);
+      console.log('LocationService: Reverse geocode result:', result);
+
+      if (result && result.length > 0) {
+        const address = result[0];
+        const readableAddress = [
+          address.name,
+          address.street,
+          address.city,
+          address.region,
+          address.postalCode,
+        ].filter(Boolean).join(', ');
+
+        console.log('LocationService: Formatted address:', readableAddress);
+        return readableAddress;
+      } else {
+        console.log('LocationService: No reverse geocode results found for coordinates.');
+        return `${coords.latitude}, ${coords.longitude}`;
       }
     } catch (error) {
-      console.error('Reverse geocoding error:', error);
+      console.error('LocationService: Reverse geocoding error:', error);
+      return `${coords.latitude}, ${coords.longitude}`;
     }
-
-    // Fallback to mock address based on coordinates (for web and errors)
-    return this.getMockAddress(coords);
   }
 
   /**
-   * Get mock address for development
-   */
-  private static getMockAddress(coords: LocationCoords): string {
-    const mockAddresses = [
-      'Victoria Island, Lagos',
-      'Ikoyi, Lagos',
-      'Lekki Phase 1, Lagos',
-      'Surulere, Lagos',
-      'Ikeja, Lagos',
-      'Maryland, Lagos',
-      'Ajah, Lagos',
-      'Banana Island, Lagos',
-    ];
-
-    // Use coordinates to generate consistent mock address
-    const index = Math.floor((coords.latitude + coords.longitude) * 1000) % mockAddresses.length;
-    return mockAddresses[index];
-  }
-
-  /**
-   * Search locations with autocomplete (mock implementation)
+   * Search locations with autocomplete using expo-location geocoding.
    */
   static async searchLocations(query: string): Promise<LocationData[]> {
     try {
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 500));
+      console.log('LocationService: Attempting geocode search for query:', query);
+      const results = await Location.geocodeAsync(query);
+      console.log('LocationService: Geocode search results:', results);
 
-      if (!query || query.length < 2) return [];
+      if (results && results.length > 0) {
+        const locationDataResults: LocationData[] = results.map(location => ({
+          latitude: location.latitude,
+          longitude: location.longitude,
+          address: [
+            location.name,
+            location.street,
+            location.city,
+            location.region,
+            location.postalCode,
+          ].filter(Boolean).join(', '),
+        }));
 
-      // Mock locations in Lagos
-      const mockLocations: LocationData[] = [
-        { latitude: 6.4581, longitude: 3.3947, address: 'Victoria Island, Lagos' },
-        { latitude: 6.4698, longitude: 3.3987, address: 'Ikoyi, Lagos' },
-        { latitude: 6.4474, longitude: 3.4739, address: 'Lekki Phase 1, Lagos' },
-        { latitude: 6.5017, longitude: 3.3616, address: 'Surulere, Lagos' },
-        { latitude: 6.6026, longitude: 3.3564, address: 'Ikeja, Lagos' },
-        { latitude: 6.5568, longitude: 3.3517, address: 'Maryland, Lagos' },
-        { latitude: 6.4652, longitude: 3.5510, address: 'Ajah, Lagos' },
-        { latitude: 6.4441, longitude: 3.4204, address: 'Banana Island, Lagos' },
-        { latitude: 6.5244, longitude: 3.3792, address: 'Lagos Mall, Lagos' },
-        { latitude: 6.5955, longitude: 3.3087, address: 'Murtala Muhammed Airport' },
-      ];
-
-      // Filter locations based on query
-      return mockLocations.filter(location =>
-        location.address!.toLowerCase().includes(query.toLowerCase())
-      );
+        console.log('LocationService: Transformed search results:', locationDataResults);
+        return locationDataResults;
+      } else {
+        console.log('LocationService: No geocode results found for query:', query);
+        return [];
+      }
     } catch (error) {
-      console.error('Location search error:', error);
+      console.error('LocationService: Location search error:', error);
       return [];
     }
   }
 
   /**
-   * Generate route points between pickup and dropoff (mock)
+   * Generate route points between pickup and dropoff (mock for now, requires external service).
    */
   static async getRoutePoints(
     pickup: LocationCoords,
     dropoff: LocationCoords
   ): Promise<LocationCoords[]> {
-    // Simple linear interpolation for mock route
     const steps = 10;
     const route: LocationCoords[] = [];
     

@@ -14,8 +14,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
-import { ridesService, Ride } from '@/services/ridesService';
-import { socketService, SocketEventHandlers, RideStatusUpdate, LocationUpdate, DriverAssigned } from '@/services/socketService';
+import { ridesService, Ride } from '@/services/ridesService'; // Ensure getRideLocation is available
+import { socketService, SocketEventHandlers, RideStatusUpdate, LocationUpdate, DriverAssigned } from '@/services/socketService'; // Ensure LocationUpdate type is correct
 import { Colors, Typography, Spacing, BorderRadius } from '@/constants/theme';
 
 const { width, height } = Dimensions.get('window');
@@ -27,7 +27,7 @@ export default function RideTrackingScreen() {
   
   const [ride, setRide] = useState<Ride | null>(null);
   const [rideStatus, setRideStatus] = useState<RideStatus>('requested');
-  const [driverLocation, setDriverLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [driverLocation, setDriverLocation] = useState<{ latitude: number; longitude: number } | null>(null); // State for driver location
   const [estimatedArrival, setEstimatedArrival] = useState<string>('');
   const [assignedDriver, setAssignedDriver] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -35,10 +35,44 @@ export default function RideTrackingScreen() {
   const { user, isBackendHealthy } = useAuth();
   const router = useRouter();
 
+  // Add a function to fetch the current driver location
+  const fetchCurrentDriverLocation = async () => {
+    if (!id) {
+      console.warn('No ride ID to fetch driver location.');
+      return;
+    }
+
+    console.log('📍 Fetching current driver location for ride:', id);
+    try {
+      const result = await ridesService.getRideLocation(id);
+      if (result.success && result.data) {
+        console.log('✅ Fetched driver location:', result.data);
+        setDriverLocation({
+          latitude: result.data.lat,
+          longitude: result.data.lng,
+        });
+        // Optionally update ETA if provided in the response
+        // if (result.data.eta) setEstimatedArrival(`${result.data.eta} min`);
+      } else {
+        console.log('⚠️ No driver location available yet or failed to fetch:', result.error);
+        // Location might not be available yet (e.g., driver hasn't started tracking)
+        // Don't necessarily set driverLocation to null here, might keep the last known location or show a message
+        setDriverLocation(null); // Or keep it as null/previous state
+      }
+    } catch (error) {
+      console.error('❌ Error fetching driver location:', error);
+      // Optionally, show an error message to the user
+      // Alert.alert('Location Error', 'Could not fetch driver location. Retrying...');
+      // You might want to retry or handle this error differently
+    }
+  };
+
   useEffect(() => {
     if (id) {
       initializeRideTracking();
       setupSocketConnection();
+      // Fetch initial location when screen loads
+      fetchCurrentDriverLocation();
     }
     
     return () => {
@@ -90,12 +124,12 @@ export default function RideTrackingScreen() {
           }
         }
       },
-      onLocationUpdate: (data: LocationUpdate) => {
-        console.log('📍 Driver location update:', data);
-        if (data.rideId === id) {
+      onLocationUpdate: ( LocationUpdate) => { // Ensure LocationUpdate type matches API docs
+        console.log('📍 Driver location update (via WS):', data);
+        if (data.rideId === id) { // Ensure data has rideId
           setDriverLocation({
-            latitude: data.latitude,
-            longitude: data.longitude
+            latitude: data.latitude, // Ensure data has lat/lng
+            longitude: data.longitude,
           });
           if (data.eta) {
             setEstimatedArrival(`${data.eta} min`);
@@ -212,6 +246,47 @@ export default function RideTrackingScreen() {
     }
   };
 
+  // Example of how the map might use the driverLocation state
+  // This is just a placeholder for the map UI part
+  const renderMapPlaceholder = () => (
+    <View style={styles.mapPlaceholder}>
+      <View style={styles.mapOverlay}>
+        <Ionicons name="map-outline" size={32} color="rgba(255,255,255,0.2)" />
+        <Text style={styles.mapText}>Live Tracking</Text>
+        <Text style={styles.mapSubtext}>Driver Location: {driverLocation ? `${driverLocation.latitude.toFixed(4)}, ${driverLocation.longitude.toFixed(4)}` : 'Loading...'}</Text>
+      </View>
+
+      {/* Example indicator for driver location if available */}
+      {driverLocation && (
+        <View style={styles.driverPositionMarker}>
+          <View style={styles.driverMarker}>
+            <Ionicons name="car" size={18} color={Colors.light.brand.primary} />
+          </View>
+          <View style={styles.driverPulse} />
+        </View>
+      )}
+
+      {/* Example indicator for pickup/dropoff */}
+      {ride && (
+        <>
+          <View style={styles.pickupLocationMarker}>
+            <View style={styles.locationMarker}>
+              <Ionicons name="location" size={16} color="white" />
+            </View>
+            <Text style={styles.locationLabel}>Pickup</Text>
+          </View>
+          <View style={styles.dropoffLocationMarker}>
+            <View style={[styles.locationMarker, styles.dropoffMarker]}>
+              <Ionicons name="flag" size={16} color="white" />
+            </View>
+            <Text style={styles.locationLabel}>Destination</Text>
+          </View>
+        </>
+      )}
+    </View>
+  );
+
+
   if (isLoading) {
     return (
       <LinearGradient colors={['#1a1a1a', '#2d1d0c']} style={styles.container}>
@@ -247,80 +322,9 @@ export default function RideTrackingScreen() {
             <View style={styles.placeholder} />
           </View>
 
-          {/* Map Area */}
+          {/* Map Area - Now uses driverLocation state */}
           <View style={styles.mapContainer}>
-            <View style={styles.mapPlaceholder}>
-              {/* Map Grid Background */}
-              <View style={styles.mapGrid}>
-                {Array.from({ length: 10 }, (_, i) => (
-                  <View key={`row-${i}`} style={styles.gridRow}>
-                    {Array.from({ length: 8 }, (_, j) => (
-                      <View key={`cell-${i}-${j}`} style={styles.gridCell} />
-                    ))}
-                  </View>
-                ))}
-              </View>
-              
-              <View style={styles.mapOverlay}>
-                <Ionicons name="map-outline" size={32} color="rgba(255,255,255,0.2)" />
-                <Text style={styles.mapText}>
-                  {rideStatus === 'in_progress' ? 'Journey in Progress' : 'Live Tracking'}
-                </Text>
-                <Text style={styles.mapSubtext}>
-                  {getJourneyStatusText(rideStatus)}
-                </Text>
-              </View>
-              
-              {/* Journey Route */}
-              {ride && (
-                <>
-                  {/* Pickup Location */}
-                  <View style={styles.pickupLocationMarker}>
-                    <View style={styles.locationMarker}>
-                      <Ionicons name="location" size={16} color="white" />
-                    </View>
-                    <Text style={styles.locationLabel}>Pickup</Text>
-                  </View>
-                  
-                  {/* Dropoff Location */}
-                  <View style={styles.dropoffLocationMarker}>
-                    <View style={[styles.locationMarker, styles.dropoffMarker]}>
-                      <Ionicons name="flag" size={16} color="white" />
-                    </View>
-                    <Text style={styles.locationLabel}>Destination</Text>
-                  </View>
-                  
-                  {/* Route Line */}
-                  <View style={styles.journeyRoute} />
-                  
-                  {/* Driver Position */}
-                  {driverLocation && (
-                    <View style={[
-                      styles.driverPositionMarker,
-                      { 
-                        left: rideStatus === 'in_progress' ? '45%' : '25%',
-                        top: rideStatus === 'in_progress' ? '45%' : '35%'
-                      }
-                    ]}>
-                      <View style={styles.driverMarker}>
-                        <Ionicons name="car" size={18} color={Colors.light.brand.primary} />
-                      </View>
-                      <View style={styles.driverPulse} />
-                    </View>
-                  )}
-                </>
-              )}
-              
-              {/* Journey Progress Indicator */}
-              {rideStatus === 'in_progress' && (
-                <View style={styles.progressIndicator}>
-                  <View style={styles.progressBar}>
-                    <View style={styles.progressFill} />
-                  </View>
-                  <Text style={styles.progressText}>Journey Progress</Text>
-                </View>
-              )}
-            </View>
+            {renderMapPlaceholder()}
 
             {/* Estimated Arrival */}
             {estimatedArrival && (
@@ -331,7 +335,7 @@ export default function RideTrackingScreen() {
             )}
           </View>
 
-          {/* Status and Details */}
+          {/* Status and Details - Uses driverLocation state if needed */}
           <View style={styles.bottomPanel}>
             {/* Status Card */}
             <View style={styles.statusCard}>
@@ -490,23 +494,6 @@ const styles = StyleSheet.create({
     position: 'relative',
     overflow: 'hidden',
   },
-  mapGrid: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    opacity: 0.08,
-  },
-  gridRow: {
-    flex: 1,
-    flexDirection: 'row',
-  },
-  gridCell: {
-    flex: 1,
-    borderWidth: 0.5,
-    borderColor: '#6B7280',
-  },
   mapOverlay: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -560,22 +547,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.xs,
     borderRadius: 4,
   },
-  journeyRoute: {
-    position: 'absolute',
-    top: '22%',
-    left: '22%',
-    width: 200,
-    height: 3,
-    backgroundColor: Colors.light.brand.secondary,
-    opacity: 0.7,
-    transform: [{ rotate: '35deg' }],
-    zIndex: 2,
-  },
   driverPositionMarker: {
     position: 'absolute',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 4,
+    // Example: position based on state or calculation relative to map
+    // This is a placeholder, actual positioning needs map logic
+    // Using driverLocation state to determine position would require map calculations
+    // For now, just place it relatively (e.g., 45% from top, 45% from left)
+    // This is just a visual placeholder
+    left: '45%', // Example - needs dynamic calculation
+    top: '45%',  // Example - needs dynamic calculation
   },
   driverMarker: {
     width: 36,

@@ -137,6 +137,31 @@ export interface CancellationResult {
 
 class RidesApiService extends BaseApiService {
   // Get user's rides (for riders, drivers, and couriers)
+
+  //new method to get rides with optional status filter
+  async getRideLocation(rideId: string): Promise<ApiResponse<{ driver_id: string; lat: number; lng: number; last_updated: string } | null>> {
+    if (healthService.shouldUseMockMode()) {
+      // You could add a mock implementation here if needed
+      // For now, let's try the real API even in mock mode if it's just a fetch
+      // Or return a mock response if necessary
+      // const mockLocation = { driver_id: 'mock_driver', lat: 6.5244, lng: 3.3792, last_updated: new Date().toISOString() };
+      // return { data: mockLocation, success: true, message: 'Mock location fetched' };
+      // For now, proceed with the real API call attempt.
+    }
+
+    try {
+      return await this.get(`/api/v1/tracking/${rideId}/location`); // Use the exact path from the docs
+    } catch (error) {
+      console.warn('⚠️ Rides Service: getRideLocation failed:', error);
+      // Return null data on failure
+      return {
+        data: null,
+        success: false,
+        error: 'Failed to fetch driver location',
+      };
+    }
+  }
+  // end new
   async getRides(status?: 'active' | 'completed' | 'cancelled', page: number = 1, limit: number = 20): Promise<ApiResponse<Ride[]>> {
     if (healthService.shouldUseMockMode()) {
       return this.getMockRides(status, page, limit);
@@ -215,7 +240,8 @@ class RidesApiService extends BaseApiService {
     }
 
     try {
-      return await this.get<Ride>(`/api/v1/rides/${rideId}`);
+      return await this.get<Ride>(`/api/v1/rides/${rideId}/status`);
+
     } catch (error) {
       console.warn('⚠️ Rides Service: getRideDetails failed, falling back to mock');
       return this.mockGetRideDetails(rideId);
@@ -382,7 +408,7 @@ class RidesApiService extends BaseApiService {
     }
 
     try {
-      return await this.post(`/api/v1/rides/${rideId}/location`, { latitude, longitude });
+      return await this.post(`/api/v1/tracking/${rideId}/update`, { latitude, longitude });
     } catch (error) {
       console.warn('⚠️ Rides Service: updateLocation failed, falling back to mock');
       return this.mockUpdateLocation(rideId, latitude, longitude);

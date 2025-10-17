@@ -1,16 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   StatusBar,
-  SafeAreaView,
   Alert,
   ActivityIndicator,
   Dimensions,
   Animated,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -18,10 +18,11 @@ import { useAuth } from '@/contexts/AuthContext';
 import { ridesService, Ride, Driver } from '@/services/ridesService';
 import { socketService, SocketEventHandlers, RideStatusUpdate, LocationUpdate, DriverAssigned } from '@/services/socketService';
 import { Colors, Typography, Spacing, BorderRadius } from '@/constants/theme';
+import { LocationService, LocationData } from '@/utils/locationUtils'; // Import LocationService
 
 const { width, height } = Dimensions.get('window');
 
-type DriverStatus = 'assigned' | 'en_route' | 'arriving' | 'arrived' | 'pickup_complete';
+type DriverStatus = 'assigned' | 'en_route' | 'arriving' | 'arrived' | 'pickup_complete' | 'in_progress' | 'completed';
 
 export default function DriverEnRouteScreen() {
   const { id, driverId } = useLocalSearchParams<{ id: string; driverId?: string }>();
@@ -40,6 +41,78 @@ export default function DriverEnRouteScreen() {
   
   const { user, isBackendHealthy } = useAuth();
   const router = useRouter();
+  const isWatchingLocation = useRef(false); // Use ref to track if location watch is active
+
+  // Add a function to start location watching
+  const startLocationWatching = async () => {
+    if (isWatchingLocation.current || !id) {
+      console.log('📍 Location watching is already active or ride ID is missing.');
+      return;
+    }
+
+    console.log('📍 Attempting to start location watching for ride:', id);
+
+    const success = await LocationService.startLocationWatch(
+      (location: LocationData) => {
+        console.log('📍 Location updated via watch:', location);
+        // Update local state for UI (optional, depends on your needs)
+        setDriverLocation({
+          latitude: location.latitude,
+          longitude: location.longitude,
+        });
+
+        // Send the location to the backend using the ride-specific endpoint
+        if (id) {
+          console.log('📤 Sending live location to backend for ride:', id, location.latitude, location.longitude);
+          // Call the ridesService updateLocation function which uses the correct API endpoint
+          ridesService.updateLocation(id, location.latitude, location.longitude)
+            .then((result) => {
+              if (result.success) {
+                console.log('✅ Location successfully sent to backend for ride:', id);
+                // Optionally update UI based on success, though WebSocket broadcast handles rider view
+              } else {
+                console.error('❌ Failed to send location to backend for ride:', id, result.error);
+                // Optionally handle backend error, maybe show a warning or retry logic
+                // For now, just log it.
+              }
+            })
+            .catch((error) => {
+              console.error('❌ Error calling updateLocation API for ride:', id, error);
+              // Optionally handle network/API call errors
+              // For now, just log it.
+            });
+        } else {
+          console.warn('📍 Ride ID not available in location callback, cannot send location.');
+        }
+      },
+      {
+        // Configure watch options: e.g., update every 5 seconds or every 10 meters
+        timeInterval: 5000, // 5 seconds
+        distanceInterval: 10, // 10 meters
+        accuracy: Location.Accuracy.High, // Use the Accuracy enum from expo-location
+      }
+    );
+
+    if (success) {
+      isWatchingLocation.current = true;
+      console.log('✅ Successfully started location watching for ride:', id);
+    } else {
+      console.error('❌ Failed to start location watching for ride:', id);
+      // Optionally, show an alert to the driver if location tracking fails critically
+      Alert.alert('Location Error', 'Failed to start location tracking. Please check permissions.');
+    }
+  };
+
+  // Add a function to stop location watching
+  const stopLocationWatching = () => {
+    if (isWatchingLocation.current) {
+      console.log('📍 Stopping location watching.');
+      LocationService.stopLocationWatch();
+      isWatchingLocation.current = false;
+    } else {
+      console.log('📍 Location watching was not active.');
+    }
+  };
 
   useEffect(() => {
     console.log('🎆 DriverEnRouteScreen useEffect triggered with id:', id);
@@ -56,6 +129,10 @@ export default function DriverEnRouteScreen() {
       console.log('🧽 Cleaning up DriverEnRouteScreen for ride:', id);
       if (id) {
         socketService.unsubscribeFromRide(id);
+        // IMPORTANT: Stop location watching when component unmounts
+        if (isWatchingLocation.current) {
+          stopLocationWatching(); // Use the new function
+        }
       }
     };
   }, [id]); // Only depend on id
@@ -91,8 +168,16 @@ export default function DriverEnRouteScreen() {
         setRide(result.data);
         console.log('✅ Successfully initialized driver tracking for ride:', result.data.id);
         console.log('📝 Ride data:', result.data);
-        
-        // Simulate driver assignment
+
+        // Determine if the ride is already in progress or the driver is en route
+        // You might need to adjust this logic based on the exact status values from your backend
+        if (result.data.status === 'in_progress' || result.data.status === 'driver_en_route') {
+             // If the ride is already in progress or the driver is en route, start watching immediately
+            startLocationWatching();
+        }
+        // Otherwise, start watching when the status changes to 'en_route' or 'in_progress' (handled in handleStatusUpdate)
+
+        // Simulate driver assignment (this part might be removed if real data comes from backend/WS)
         setTimeout(() => {
           const mockDriver: Driver = {
             id: driverId || 'driver_001',
@@ -125,7 +210,7 @@ export default function DriverEnRouteScreen() {
         }, 1500);
       } else {
         console.error('❌ Failed to load ride details:', result.error);
-        // Don't automatically navigate back - stay on the screen
+        // Don't automatically navigate back - stay on the screen for debugging
         Alert.alert('Loading Error', 'Failed to load ride details, but staying on tracking screen');
       }
     } catch (error) {
@@ -148,12 +233,14 @@ export default function DriverEnRouteScreen() {
         }
       },
       onLocationUpdate: (data: LocationUpdate) => {
-        console.log('📍 Driver location update:', data);
+        console.log('📍 Driver location update (received via WS):', data);
+        // This handler is for receiving *other* updates (e.g., maybe rider location in the future)
+        // For the driver's own tracking, we rely on the local watch callback and sending to backend
+        // If the rider's screen receives this, it updates the driver's position on their map
+        // This is still important for the rider's view, but the driver sends updates via startLocationWatching
         if (data.rideId === id) {
-          setDriverLocation({
-            latitude: data.latitude,
-            longitude: data.longitude
-          });
+          // Example: Update state if needed for rider's perspective on driver screen (less common)
+          // setDriverLocationReceivedFromRider({ latitude: data.latitude, longitude: data.longitude });
           if (data.eta) {
             setEstimatedArrival(`${data.eta} min`);
           }
@@ -167,6 +254,10 @@ export default function DriverEnRouteScreen() {
         if (data.rideId === id) {
           setEstimatedArrival(data.estimatedArrival);
           setDriverStatus('en_route');
+          // Start watching location when the driver is assigned and en route
+          // Check if status is already 'en_route' or similar, then start
+          // Or rely on handleStatusUpdate if it gets called after assignment
+          // For now, let handleStatusUpdate manage it.
         }
       },
       onError: (error) => {
@@ -177,21 +268,26 @@ export default function DriverEnRouteScreen() {
     await socketService.initialize(handlers);
     socketService.subscribeToRide(id);
     
-    // Simulate driver status progression
-    simulateDriverProgress();
+    // Simulate driver status progression (REMOVE THIS in production, rely on backend/WS)
+    // simulateDriverProgress(); // Commented out as we want real backend/WS updates
   };
 
   const handleStatusUpdate = (status: string) => {
+    console.log('📍 Handling status update:', status);
     switch (status) {
       case 'accepted':
         setDriverStatus('assigned');
         break;
       case 'driver_en_route':
         setDriverStatus('en_route');
+        // Start watching location when the driver is en route
+        startLocationWatching();
         break;
       case 'driver_arrived':
         console.log('🏁 Status update: Driver arrived!');
         setDriverStatus('arrived');
+        // Stop watching when arrived (or keep it running if needed during wait time)
+        // stopLocationWatching(); // Uncomment if you want to stop when arrived
         // DISABLED: Auto-navigate to let user see the arrived state
         // setTimeout(() => {
         //   router.replace(`/(dashboard)/ride-tracking?id=${id}&driverId=${driverId}`);
@@ -199,50 +295,28 @@ export default function DriverEnRouteScreen() {
         break;
       case 'in_progress':
         console.log('🚗 Status update: Trip in progress!');
-        router.replace(`/(dashboard)/ride-tracking?id=${id}&driverId=${driverId}`);
+        setDriverStatus('in_progress'); // Update status to in_progress
+        // Ensure watching is active if it wasn't already
+        startLocationWatching();
+        // Navigate to the main ride tracking screen (for driver or rider view, depending on implementation)
+        // This might be the same screen or a different one
+        // router.replace(`/(dashboard)/ride-tracking?id=${id}&driverId=${driverId}`);
         break;
+      case 'completed':
+         console.log('🏁 Status update: Trip completed!');
+         setDriverStatus('completed'); // Set status to completed
+         // Stop watching when ride is completed
+         stopLocationWatching();
+         // Navigate away or update UI for completion
+         // router.replace(`/(dashboard)/ride-completion?id=${id}`);
+         break;
     }
   };
 
-  const simulateDriverProgress = () => {
-    // Simulate realistic driver movement towards pickup
-    let currentDistance = distance || 2.5; // Use default if distance not set
-    let currentETA = 5;
-    
-    console.log('🏓 Starting driver simulation with distance:', currentDistance);
-    
-    const updateInterval = setInterval(() => {
-      currentDistance = Math.max(0.1, currentDistance - 0.2); // Driver gets closer
-      currentETA = Math.max(1, currentETA - 0.5); // ETA decreases
-      
-      setDistance(currentDistance);
-      setEstimatedArrival(`${Math.ceil(currentETA)} min`);
-      
-      // Update driver location (simulate movement)
-      setDriverLocation(prev => prev ? {
-        latitude: prev.latitude + (Math.random() - 0.5) * 0.001,
-        longitude: prev.longitude + (Math.random() - 0.5) * 0.001
-      } : null);
-      
-      // Simulate status progression
-      if (currentDistance < 0.5 && driverStatus === 'en_route') {
-        console.log('📡 Driver arriving status update');
-        setDriverStatus('arriving');
-      } else if (currentDistance < 0.1 && driverStatus === 'arriving') {
-        console.log('🏁 Driver arrived status update');
-        setDriverStatus('arrived');
-        clearInterval(updateInterval);
-        console.log('🚨 Driver arrived! User can manually proceed to ride tracking.');
-        // DISABLED: Auto-navigate to tracking after arrival - let user see the arrived state
-        // setTimeout(() => {
-        //   router.replace(`/(dashboard)/ride-tracking?id=${id}&driverId=${driverId}`);
-        // }, 3000);
-      }
-    }, 2000);
-    
-    // Cleanup interval after 2 minutes
-    setTimeout(() => clearInterval(updateInterval), 120000);
-  };
+  // Simulate driver progress (REMOVE THIS in production, rely on backend/WS and real GPS)
+  // const simulateDriverProgress = () => {
+  //   // ... existing simulation code ...
+  // };
 
   const handleCallDriver = () => {
     if (driver?.phone) {
@@ -276,7 +350,8 @@ export default function DriverEnRouteScreen() {
       case 'en_route': return 'Driver En Route';
       case 'arriving': return 'Driver Arriving';
       case 'arrived': return 'Driver Arrived!';
-      case 'pickup_complete': return 'Trip Starting';
+      case 'in_progress': return 'Trip in Progress';
+      case 'completed': return 'Trip Completed';
       default: return 'Processing...';
     }
   };
@@ -287,7 +362,8 @@ export default function DriverEnRouteScreen() {
       case 'en_route': return 'Your driver is on the way to pick you up';
       case 'arriving': return 'Your driver is almost at the pickup location';
       case 'arrived': return 'Your driver has arrived at the pickup location';
-      case 'pickup_complete': return 'Your trip is about to begin';
+      case 'in_progress': return 'You are currently on your trip';
+      case 'completed': return 'Your trip has been completed successfully';
       default: return 'Please wait...';
     }
   };
@@ -298,7 +374,8 @@ export default function DriverEnRouteScreen() {
       case 'en_route': return Colors.light.brand.secondary;
       case 'arriving': return '#F59E0B';
       case 'arrived': return '#8B5CF6';
-      case 'pickup_complete': return '#06B6D4';
+      case 'in_progress': return '#06B6D4';
+      case 'completed': return '#10B981';
       default: return '#6B7280';
     }
   };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,9 @@ import {
   FlatList,
   SafeAreaView,
   StatusBar,
+  Platform,
 } from 'react-native';
+import MapView, { Marker, Polyline, UrlTile } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { Colors, Typography, Spacing, BorderRadius, Shadows } from '@/constants/theme';
@@ -34,48 +36,152 @@ const MapScreen: React.FC<MapScreenProps> = ({
   initialDropoff,
 }) => {
   const router = useRouter();
+  const mapRef = useRef<MapView>(null);
   
   const [currentLocation, setCurrentLocation] = useState<LocationData | null>(null);
   const [pickupLocation, setPickupLocation] = useState<LocationData | null>(initialPickup || null);
   const [dropoffLocation, setDropoffLocation] = useState<LocationData | null>(initialDropoff || null);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>('pickup');
+  const [routeCoordinates, setRouteCoordinates] = useState<LocationCoords[]>([]);
   
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<LocationData[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [isLoadingLocation, setIsLoadingLocation] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const [mapReady, setMapReady] = useState(false);
+
+  // Default region (Lagos, Nigeria)
+  const defaultRegion = {
+    latitude: 6.5244,
+    longitude: 3.3792,
+    latitudeDelta: 0.0922,
+    longitudeDelta: 0.0421,
+  };
 
   // Load user's current location on mount
   useEffect(() => {
     loadCurrentLocation();
   }, []);
 
+  // Update route when both locations are selected
+  useEffect(() => {
+    if (pickupLocation && dropoffLocation) {
+      generateRoute();
+    } else {
+      setRouteCoordinates([]);
+    }
+  }, [pickupLocation, dropoffLocation]);
+
+  // Fit map to show both markers when locations change
+  useEffect(() => {
+    if (mapReady && mapRef.current) {
+      fitMapToMarkers();
+    }
+  }, [pickupLocation, dropoffLocation, mapReady]);
+
   const loadCurrentLocation = async () => {
+    setLocationError(null);
     setIsLoadingLocation(true);
     try {
       const location = await LocationService.getCurrentLocation();
       if (location) {
+        console.log('MapScreen: Got current location:', location);
         setCurrentLocation(location);
-        
+
         // Auto-set pickup to current location if not already set
         if (!pickupLocation) {
           const address = await LocationService.reverseGeocode(location);
-          setPickupLocation({ ...location, address });
+          const locationWithAddress = { ...location, address };
+          setPickupLocation(locationWithAddress);
+          console.log('MapScreen: Set initial pickup location to current location with address.');
+          
+          // Animate map to current location
+          if (mapRef.current) {
+            mapRef.current.animateToRegion({
+              latitude: location.latitude,
+              longitude: location.longitude,
+              latitudeDelta: 0.01,
+              longitudeDelta: 0.01,
+            }, 1000);
+          }
         }
+      } else {
+        console.warn('MapScreen: LocationService returned null.');
+        setLocationError('Failed to get your current location. Please check permissions or use search.');
       }
     } catch (error) {
-      console.error('Error loading current location:', error);
-      Alert.alert('Location Error', 'Could not get your current location. Please select manually.');
+      console.error('MapScreen: Error in loadCurrentLocation:', error);
+      setLocationError('An unexpected error occurred while getting your location.');
     } finally {
       setIsLoadingLocation(false);
+    }
+  };
+
+  const generateRoute = async () => {
+    if (!pickupLocation || !dropoffLocation) return;
+    
+    try {
+      const route = await LocationService.getRoutePoints(pickupLocation, dropoffLocation);
+      setRouteCoordinates(route);
+    } catch (error) {
+      console.error('Error generating route:', error);
+    }
+  };
+
+  const fitMapToMarkers = () => {
+    if (!mapRef.current) return;
+
+    const markers = [pickupLocation, dropoffLocation].filter(Boolean) as LocationData[];
+    
+    if (markers.length === 0) return;
+
+    if (markers.length === 1) {
+      // If only one marker, center on it
+      mapRef.current.animateToRegion({
+        latitude: markers[0].latitude,
+        longitude: markers[0].longitude,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      }, 500);
+    } else {
+      // If multiple markers, fit to show all
+      mapRef.current.fitToCoordinates(
+        markers.map(m => ({ latitude: m.latitude, longitude: m.longitude })),
+        {
+          edgePadding: { top: 100, right: 50, bottom: 300, left: 50 },
+          animated: true,
+        }
+      );
+    }
+  };
+
+  const handleMapPress = async (event: any) => {
+    const { coordinate } = event.nativeEvent;
+    
+    // Get address for the selected coordinate
+    const address = await LocationService.reverseGeocode(coordinate);
+    const locationData: LocationData = {
+      ...coordinate,
+      address,
+    };
+
+    if (selectionMode === 'pickup') {
+      setPickupLocation(locationData);
+      if (!dropoffLocation) {
+        setSelectionMode('dropoff');
+      }
+    } else {
+      setDropoffLocation(locationData);
     }
   };
 
   // Handle search input changes
   const handleSearch = async (query: string) => {
     setSearchQuery(query);
-    
+    setLocationError(null);
+
     if (query.length < 2) {
       setSearchResults([]);
       setShowSearchResults(false);
@@ -89,6 +195,7 @@ const MapScreen: React.FC<MapScreenProps> = ({
       setShowSearchResults(true);
     } catch (error) {
       console.error('Search error:', error);
+      setLocationError('Search failed. Please try again.');
     } finally {
       setIsSearching(false);
     }
@@ -98,15 +205,25 @@ const MapScreen: React.FC<MapScreenProps> = ({
   const handleSearchResultSelect = async (location: LocationData) => {
     setShowSearchResults(false);
     setSearchQuery('');
-    
+    setLocationError(null);
+
     if (selectionMode === 'pickup') {
       setPickupLocation(location);
-      // Auto-switch to dropoff selection after pickup is selected
       if (!dropoffLocation) {
         setSelectionMode('dropoff');
       }
     } else {
       setDropoffLocation(location);
+    }
+
+    // Animate map to selected location
+    if (mapRef.current) {
+      mapRef.current.animateToRegion({
+        latitude: location.latitude,
+        longitude: location.longitude,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      }, 1000);
     }
   };
 
@@ -122,39 +239,21 @@ const MapScreen: React.FC<MapScreenProps> = ({
       return;
     }
 
-    // Try callback first (if provided)
     if (onLocationSelect) {
       onLocationSelect(pickupLocation, dropoffLocation);
       router.back();
       return;
     }
 
-    // Fallback: pass data via router params
     const pickupData = encodeURIComponent(JSON.stringify(pickupLocation));
     const dropoffData = encodeURIComponent(JSON.stringify(dropoffLocation));
     
     router.replace(`/(dashboard)/book-ride?pickup=${pickupData}&dropoff=${dropoffData}`);
   };
 
-  // Handle current location button press
   const handleCurrentLocationPress = async () => {
-    if (!currentLocation) {
-      await loadCurrentLocation();
-    }
-    
-    if (currentLocation) {
-      const address = await LocationService.reverseGeocode(currentLocation);
-      const locationData = { ...currentLocation, address };
-      
-      if (selectionMode === 'pickup') {
-        setPickupLocation(locationData);
-        if (!dropoffLocation) {
-          setSelectionMode('dropoff');
-        }
-      } else {
-        setDropoffLocation(locationData);
-      }
-    }
+    setLocationError(null);
+    await loadCurrentLocation();
   };
 
   // Render search result item
@@ -165,10 +264,7 @@ const MapScreen: React.FC<MapScreenProps> = ({
     >
       <Ionicons name="location-outline" size={20} color={Colors.light.brand.secondary} />
       <View style={styles.searchResultContent}>
-        <Text style={styles.searchResultAddress}>{item.address}</Text>
-        <Text style={styles.searchResultDistance}>
-          {Math.round(item.latitude * 1000) / 1000}, {Math.round(item.longitude * 1000) / 1000}
-        </Text>
+        <Text style={styles.searchResultAddress}>{item.address || `${item.latitude}, ${item.longitude}`}</Text>
       </View>
     </TouchableOpacity>
   );
@@ -176,14 +272,75 @@ const MapScreen: React.FC<MapScreenProps> = ({
   return (
     <>
       <StatusBar barStyle="light-content" backgroundColor="#1a1a1a" />
-      <LinearGradient
-        colors={['#1a1a1a', '#2d1d0c']}
-        style={styles.container}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-      >
-        <SafeAreaView style={styles.safeArea}>
-          {/* Header */}
+      <View style={styles.container}>
+        {/* Map View with OpenStreetMap tiles */}
+        <MapView
+          ref={mapRef}
+          style={styles.map}
+          initialRegion={defaultRegion}
+          showsUserLocation={true}
+          showsMyLocationButton={false}
+          onPress={handleMapPress}
+          onMapReady={() => setMapReady(true)}
+          mapType="none"
+        >
+          {/* OpenStreetMap Dark Tiles */}
+          <UrlTile
+            urlTemplate="https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png"
+            maximumZ={19}
+            flipY={false}
+          />
+
+          {/* Pickup Marker */}
+          {pickupLocation && (
+            <Marker
+              coordinate={{
+                latitude: pickupLocation.latitude,
+                longitude: pickupLocation.longitude,
+              }}
+              title="Pickup"
+              description={pickupLocation.address}
+            >
+              <View style={styles.markerContainer}>
+                <View style={[styles.marker, styles.pickupMarker]}>
+                  <Ionicons name="location" size={24} color="white" />
+                </View>
+                <Text style={styles.markerLabel}>Pickup</Text>
+              </View>
+            </Marker>
+          )}
+
+          {/* Dropoff Marker */}
+          {dropoffLocation && (
+            <Marker
+              coordinate={{
+                latitude: dropoffLocation.latitude,
+                longitude: dropoffLocation.longitude,
+              }}
+              title="Dropoff"
+              description={dropoffLocation.address}
+            >
+              <View style={styles.markerContainer}>
+                <View style={[styles.marker, styles.dropoffMarker]}>
+                  <Ionicons name="location" size={24} color="white" />
+                </View>
+                <Text style={styles.markerLabel}>Dropoff</Text>
+              </View>
+            </Marker>
+          )}
+
+          {/* Route Polyline */}
+          {routeCoordinates.length > 0 && (
+            <Polyline
+              coordinates={routeCoordinates}
+              strokeColor={Colors.light.brand.secondary}
+              strokeWidth={4}
+            />
+          )}
+        </MapView>
+
+        {/* Header Overlay */}
+        <SafeAreaView style={styles.headerOverlay}>
           <View style={styles.header}>
             <TouchableOpacity 
               style={styles.backButton}
@@ -194,171 +351,150 @@ const MapScreen: React.FC<MapScreenProps> = ({
             <Text style={styles.headerTitle}>Select Locations</Text>
             <View style={styles.placeholder} />
           </View>
+        </SafeAreaView>
 
-          {/* Web Map Placeholder */}
-          <View style={styles.mapPlaceholder}>
-            <View style={styles.mapOverlay}>
-              <Ionicons name="map-outline" size={48} color="rgba(255,255,255,0.3)" />
-              <Text style={styles.mapPlaceholderText}>
-                Interactive Map
-              </Text>
-              <Text style={styles.mapPlaceholderSubtext}>
-                Use search below to find locations
-              </Text>
-            </View>
+        {/* Current Location Button */}
+        <TouchableOpacity
+          style={styles.currentLocationButton}
+          onPress={handleCurrentLocationPress}
+          disabled={isLoadingLocation}
+        >
+          {isLoadingLocation ? (
+            <ActivityIndicator size="small" color={Colors.light.brand.secondary} />
+          ) : (
+            <Ionicons name="locate" size={24} color={Colors.light.brand.secondary} />
+          )}
+        </TouchableOpacity>
 
-            {/* Location Indicators on Map */}
-            {pickupLocation && (
-              <View style={styles.mapPickupIndicator}>
-                <Ionicons name="location" size={24} color="#10B981" />
-                <Text style={styles.mapIndicatorLabel}>Pickup</Text>
-              </View>
-            )}
-            
-            {dropoffLocation && (
-              <View style={styles.mapDropoffIndicator}>
-                <Ionicons name="location" size={24} color="#EF4444" />
-                <Text style={styles.mapIndicatorLabel}>Dropoff</Text>
-              </View>
-            )}
-
-            {/* Current Location Button */}
-            <TouchableOpacity
-              style={styles.currentLocationButton}
-              onPress={handleCurrentLocationPress}
-              disabled={isLoadingLocation}
-            >
-              {isLoadingLocation ? (
-                <ActivityIndicator size="small" color={Colors.light.brand.secondary} />
-              ) : (
-                <Ionicons name="locate" size={24} color={Colors.light.brand.secondary} />
-              )}
-            </TouchableOpacity>
+        {/* Error Banner */}
+        {locationError && (
+          <View style={styles.locationErrorBanner}>
+            <Text style={styles.locationErrorText}>{locationError}</Text>
           </View>
+        )}
 
-          {/* Location Selection Panel */}
-          <View style={styles.bottomPanel}>
-            {/* Mode Toggle */}
-            <View style={styles.modeToggle}>
-              <TouchableOpacity
-                style={[
-                  styles.modeButton,
-                  selectionMode === 'pickup' && styles.modeButtonActive
-                ]}
-                onPress={() => setSelectionMode('pickup')}
-              >
-                <View style={styles.modeButtonContent}>
-                  <View style={[styles.modeDot, styles.pickupDot]} />
-                  <Text style={[
-                    styles.modeButtonText,
-                    selectionMode === 'pickup' && styles.modeButtonTextActive
-                  ]}>
-                    Pickup Location
-                  </Text>
-                </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.modeButton,
-                  selectionMode === 'dropoff' && styles.modeButtonActive
-                ]}
-                onPress={() => setSelectionMode('dropoff')}
-              >
-                <View style={styles.modeButtonContent}>
-                  <View style={[styles.modeDot, styles.dropoffDot]} />
-                  <Text style={[
-                    styles.modeButtonText,
-                    selectionMode === 'dropoff' && styles.modeButtonTextActive
-                  ]}>
-                    Dropoff Location
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            </View>
-
-            {/* Search Box */}
-            <View style={styles.searchContainer}>
-              <Ionicons name="search" size={20} color="#6B7280" style={styles.searchIcon} />
-              <TextInput
-                style={styles.searchInput}
-                placeholder={`Search for ${selectionMode} location...`}
-                placeholderTextColor="#6B7280"
-                value={searchQuery}
-                onChangeText={handleSearch}
-                autoFocus={false}
-              />
-              {isSearching && (
-                <ActivityIndicator size="small" color={Colors.light.brand.secondary} />
-              )}
-            </View>
-
-            {/* Selected Locations Display */}
-            <View style={styles.selectedLocations}>
-              {/* Pickup Display */}
-              <View style={styles.locationDisplay}>
-                <View style={styles.locationDisplayIcon}>
-                  <View style={[styles.locationDot, styles.pickupDot]} />
-                </View>
-                <View style={styles.locationDisplayContent}>
-                  <Text style={styles.locationDisplayLabel}>Pickup</Text>
-                  <Text style={styles.locationDisplayAddress}>
-                    {pickupLocation?.address || 'Select pickup location'}
-                  </Text>
-                </View>
-                {pickupLocation && (
-                  <Ionicons name="checkmark-circle" size={20} color={Colors.light.success} />
-                )}
-              </View>
-
-              {/* Dropoff Display */}
-              <View style={styles.locationDisplay}>
-                <View style={styles.locationDisplayIcon}>
-                  <View style={[styles.locationDot, styles.dropoffDot]} />
-                </View>
-                <View style={styles.locationDisplayContent}>
-                  <Text style={styles.locationDisplayLabel}>Dropoff</Text>
-                  <Text style={styles.locationDisplayAddress}>
-                    {dropoffLocation?.address || 'Select dropoff location'}
-                  </Text>
-                </View>
-                {dropoffLocation && (
-                  <Ionicons name="checkmark-circle" size={20} color={Colors.light.success} />
-                )}
-              </View>
-            </View>
-
-            {/* Search Results */}
-            {showSearchResults && searchResults.length > 0 && (
-              <View style={styles.searchResults}>
-                <FlatList
-                  data={searchResults}
-                  keyExtractor={(item, index) => `${item.latitude}-${item.longitude}-${index}`}
-                  renderItem={renderSearchResult}
-                  maxToRenderPerBatch={5}
-                  initialNumToRender={5}
-                  showsVerticalScrollIndicator={false}
-                />
-              </View>
-            )}
-
-            {/* Confirm Button */}
+        {/* Bottom Panel */}
+        <View style={styles.bottomPanel}>
+          {/* Mode Toggle */}
+          <View style={styles.modeToggle}>
             <TouchableOpacity
               style={[
-                styles.confirmButton,
-                (!pickupLocation || !dropoffLocation) && styles.confirmButtonDisabled
+                styles.modeButton,
+                selectionMode === 'pickup' && styles.modeButtonActive
               ]}
-              onPress={handleConfirm}
-              disabled={!pickupLocation || !dropoffLocation}
+              onPress={() => setSelectionMode('pickup')}
             >
-              <Text style={styles.confirmButtonText}>
-                Confirm Locations
-              </Text>
-              <Ionicons name="checkmark" size={20} color={Colors.light.brand.primary} />
+              <View style={styles.modeButtonContent}>
+                <View style={[styles.modeDot, styles.pickupDot]} />
+                <Text style={[
+                  styles.modeButtonText,
+                  selectionMode === 'pickup' && styles.modeButtonTextActive
+                ]}>
+                  Pickup
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.modeButton,
+                selectionMode === 'dropoff' && styles.modeButtonActive
+              ]}
+              onPress={() => setSelectionMode('dropoff')}
+            >
+              <View style={styles.modeButtonContent}>
+                <View style={[styles.modeDot, styles.dropoffDot]} />
+                <Text style={[
+                  styles.modeButtonText,
+                  selectionMode === 'dropoff' && styles.modeButtonTextActive
+                ]}>
+                  Dropoff
+                </Text>
+              </View>
             </TouchableOpacity>
           </View>
-        </SafeAreaView>
-      </LinearGradient>
+
+          {/* Search Box */}
+          <View style={styles.searchContainer}>
+            <Ionicons name="search" size={20} color="#6B7280" style={styles.searchIcon} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder={`Search ${selectionMode} location...`}
+              placeholderTextColor="#6B7280"
+              value={searchQuery}
+              onChangeText={handleSearch}
+              autoFocus={false}
+            />
+            {isSearching && (
+              <ActivityIndicator size="small" color={Colors.light.brand.secondary} />
+            )}
+          </View>
+
+          {/* Selected Locations Display */}
+          <View style={styles.selectedLocations}>
+            {/* Pickup Display */}
+            <View style={styles.locationDisplay}>
+              <View style={styles.locationDisplayIcon}>
+                <View style={[styles.locationDot, styles.pickupDot]} />
+              </View>
+              <View style={styles.locationDisplayContent}>
+                <Text style={styles.locationDisplayLabel}>Pickup</Text>
+                <Text style={styles.locationDisplayAddress} numberOfLines={1}>
+                  {pickupLocation?.address || (pickupLocation ? `${pickupLocation.latitude.toFixed(4)}, ${pickupLocation.longitude.toFixed(4)}` : 'Tap map or search')}
+                </Text>
+              </View>
+              {pickupLocation && (
+                <Ionicons name="checkmark-circle" size={20} color={Colors.light.success} />
+              )}
+            </View>
+
+            {/* Dropoff Display */}
+            <View style={styles.locationDisplay}>
+              <View style={styles.locationDisplayIcon}>
+                <View style={[styles.locationDot, styles.dropoffDot]} />
+              </View>
+              <View style={styles.locationDisplayContent}>
+                <Text style={styles.locationDisplayLabel}>Dropoff</Text>
+                <Text style={styles.locationDisplayAddress} numberOfLines={1}>
+                  {dropoffLocation?.address || (dropoffLocation ? `${dropoffLocation.latitude.toFixed(4)}, ${dropoffLocation.longitude.toFixed(4)}` : 'Tap map or search')}
+                </Text>
+              </View>
+              {dropoffLocation && (
+                <Ionicons name="checkmark-circle" size={20} color={Colors.light.success} />
+              )}
+            </View>
+          </View>
+
+          {/* Search Results */}
+          {showSearchResults && searchResults.length > 0 && (
+            <View style={styles.searchResults}>
+              <FlatList
+                data={searchResults}
+                keyExtractor={(item, index) => `${item.latitude}-${item.longitude}-${index}`}
+                renderItem={renderSearchResult}
+                maxToRenderPerBatch={5}
+                initialNumToRender={5}
+                showsVerticalScrollIndicator={false}
+              />
+            </View>
+          )}
+
+          {/* Confirm Button */}
+          <TouchableOpacity
+            style={[
+              styles.confirmButton,
+              (!pickupLocation || !dropoffLocation) && styles.confirmButtonDisabled
+            ]}
+            onPress={handleConfirm}
+            disabled={!pickupLocation || !dropoffLocation}
+          >
+            <Text style={styles.confirmButtonText}>
+              Confirm Locations
+            </Text>
+            <Ionicons name="checkmark" size={20} color={Colors.light.brand.primary} />
+          </TouchableOpacity>
+        </View>
+      </View>
     </>
   );
 };
@@ -367,8 +503,15 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  safeArea: {
-    flex: 1,
+  map: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  headerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(26, 26, 26, 0.9)',
   },
   header: {
     flexDirection: 'row',
@@ -376,11 +519,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
   backButton: {
     padding: Spacing.sm,
+    backgroundColor: 'rgba(55, 65, 81, 0.8)',
+    borderRadius: 20,
   },
   headerTitle: {
     fontSize: Typography.fontSize.lg,
@@ -388,80 +531,87 @@ const styles = StyleSheet.create({
     color: 'white',
   },
   placeholder: {
-    width: 32,
+    width: 40,
   },
-  mapPlaceholder: {
-    flex: 1,
-    backgroundColor: '#2d2d2d',
-    margin: Spacing.md,
-    borderRadius: BorderRadius.xl,
-    position: 'relative',
-    justifyContent: 'center',
+  markerContainer: {
     alignItems: 'center',
   },
-  mapOverlay: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  mapPlaceholderText: {
-    fontSize: Typography.fontSize.xl,
-    fontWeight: Typography.fontWeight.semibold,
-    color: 'rgba(255,255,255,0.6)',
-    marginTop: Spacing.md,
-  },
-  mapPlaceholderSubtext: {
-    fontSize: Typography.fontSize.sm,
-    color: 'rgba(255,255,255,0.4)',
-    marginTop: Spacing.xs,
-  },
-  currentLocationButton: {
-    position: 'absolute',
-    bottom: Spacing.lg,
-    right: Spacing.lg,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#374151',
+  marker: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
     ...Shadows.lg,
   },
-  mapPickupIndicator: {
-    position: 'absolute',
-    top: '30%',
-    left: '25%',
-    alignItems: 'center',
+  pickupMarker: {
+    backgroundColor: '#10B981',
   },
-  mapDropoffIndicator: {
-    position: 'absolute',
-    bottom: '30%',
-    right: '25%',
-    alignItems: 'center',
+  dropoffMarker: {
+    backgroundColor: '#EF4444',
   },
-  mapIndicatorLabel: {
+  markerLabel: {
     fontSize: Typography.fontSize.xs,
     color: 'white',
-    marginTop: Spacing.xs,
+    marginTop: 4,
+    fontWeight: Typography.fontWeight.bold,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  currentLocationButton: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 120 : 100,
+    right: Spacing.lg,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(55, 65, 81, 0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Shadows.lg,
+  },
+  locationErrorBanner: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 180 : 160,
+    left: Spacing.lg,
+    right: Spacing.lg,
+    backgroundColor: '#EF4444',
+    padding: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+    alignItems: 'center',
+    ...Shadows.lg,
+  },
+  locationErrorText: {
+    fontSize: Typography.fontSize.sm,
+    color: 'white',
+    textAlign: 'center',
     fontWeight: Typography.fontWeight.medium,
   },
   bottomPanel: {
-    backgroundColor: '#374151',
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(55, 65, 81, 0.95)',
     borderTopLeftRadius: BorderRadius.xl,
     borderTopRightRadius: BorderRadius.xl,
     padding: Spacing.lg,
-    maxHeight: height * 0.6,
+    maxHeight: height * 0.5,
+    ...Shadows.xl,
   },
   modeToggle: {
     flexDirection: 'row',
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.md,
     backgroundColor: '#4B5563',
     borderRadius: BorderRadius.md,
-    padding: Spacing.xs,
+    padding: 4,
   },
   modeButton: {
     flex: 1,
     paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.md,
+    paddingHorizontal: Spacing.sm,
     borderRadius: BorderRadius.sm,
     alignItems: 'center',
   },
@@ -498,7 +648,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#4B5563',
     borderRadius: BorderRadius.md,
     paddingHorizontal: Spacing.md,
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.md,
   },
   searchIcon: {
     marginRight: Spacing.sm,
@@ -510,17 +660,17 @@ const styles = StyleSheet.create({
     color: 'white',
   },
   selectedLocations: {
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.md,
   },
   locationDisplay: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: Spacing.sm,
+    paddingVertical: Spacing.xs,
   },
   locationDisplayIcon: {
     width: 24,
     alignItems: 'center',
-    marginRight: Spacing.md,
+    marginRight: Spacing.sm,
   },
   locationDot: {
     width: 12,
@@ -531,20 +681,20 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   locationDisplayLabel: {
-    fontSize: Typography.fontSize.sm,
+    fontSize: Typography.fontSize.xs,
     color: '#9CA3AF',
     marginBottom: 2,
   },
   locationDisplayAddress: {
-    fontSize: Typography.fontSize.base,
+    fontSize: Typography.fontSize.sm,
     color: 'white',
     fontWeight: Typography.fontWeight.medium,
   },
   searchResults: {
     backgroundColor: '#4B5563',
     borderRadius: BorderRadius.md,
-    marginBottom: Spacing.lg,
-    maxHeight: 200,
+    marginBottom: Spacing.md,
+    maxHeight: 150,
   },
   searchResultItem: {
     flexDirection: 'row',
@@ -558,13 +708,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   searchResultAddress: {
-    fontSize: Typography.fontSize.base,
-    color: 'white',
-    marginBottom: 2,
-  },
-  searchResultDistance: {
     fontSize: Typography.fontSize.sm,
-    color: '#9CA3AF',
+    color: 'white',
   },
   confirmButton: {
     flexDirection: 'row',
@@ -572,7 +717,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: Colors.light.brand.secondary,
     borderRadius: BorderRadius.md,
-    paddingVertical: Spacing.lg,
+    paddingVertical: Spacing.md,
     gap: Spacing.sm,
   },
   confirmButtonDisabled: {
@@ -580,7 +725,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   confirmButtonText: {
-    fontSize: Typography.fontSize.lg,
+    fontSize: Typography.fontSize.base,
     fontWeight: Typography.fontWeight.bold,
     color: Colors.light.brand.primary,
   },
