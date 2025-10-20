@@ -2,6 +2,7 @@ import React, { createContext, useContext, useReducer, useEffect, ReactNode } fr
 import { enhancedTokenManager } from '@/utils/enhancedTokenManager';
 import { healthService } from '@/services/healthService';
 import { authService } from '@/services/authService';
+import { socketService } from '@/services/socketService';
 
 interface User {
   id: string;
@@ -253,6 +254,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+
+  const joinWebSocketRoom = (user: User | null) => {
+    if (user && (user.role === 'driver' || user.role === 'rider')) {
+      console.log('🔌 Joining WebSocket personal room:', `${user.role}:${user.id}`);
+      socketService.joinPersonalRoom(user.id, user.role);
+    }
+  };
+
   const checkAuthStatus = async () => {
     dispatch({ type: 'SET_LOADING', payload: true });
     try {
@@ -319,6 +328,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 isBackendHealthy: state.isBackendHealthy
               } 
             });
+            joinWebSocketRoom(userToSet);
           } else {
             console.log('⚠️ Token found but not fully authenticated', { userId, otpVerified });
             dispatch({ 
@@ -485,6 +495,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         payload: { user: userToStore, token: data.access_token } 
       });
       
+      joinWebSocketRoom(userToStore);
+
       console.log('✅ OTP verification completed successfully');
       return { success: true, user: userToStore };
     } catch (error: any) {

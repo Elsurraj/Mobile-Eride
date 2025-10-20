@@ -106,3 +106,6 @@ The comment signifies that the `getRoutePoints` function currently generates a f
   },
   "private": true
 }
+# ------------------------------------------------------------------------------------
+
+compnents/screens/MapScreen.tsx: uses  Stadia Maps for interactive map, it can later be changed to Google map for production.

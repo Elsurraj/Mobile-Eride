@@ -3,9 +3,8 @@ import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
+  TouchableOpacity, 
   StatusBar,
-  SafeAreaView,
   Alert,
   Dimensions,
   TextInput,
@@ -13,6 +12,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -29,7 +29,7 @@ export default function BookRideScreen() {
   }>();
   const [pickupLocation, setPickupLocation] = useState<LocationData | null>(null);
   const [dropoffLocation, setDropoffLocation] = useState<LocationData | null>(null);
-  const [rideType, setRideType] = useState<'standard' | 'premium' | 'delivery'>('standard');
+  const [rideType, setRideType] = useState<'standard' | 'premium' | 'express'>('standard'); // ✅ Updated type
   const { user, isBackendHealthy } = useAuth();
   const router = useRouter();
 
@@ -56,6 +56,7 @@ export default function BookRideScreen() {
     }
   }, [pickup, dropoff]);
 
+  // ✅ Updated ride types to match backend enum: 'standard' | 'premium' | 'express'
   const rideTypes = [
     { 
       key: 'standard', 
@@ -72,11 +73,11 @@ export default function BookRideScreen() {
       price: '₦300-600'
     },
     { 
-      key: 'delivery', 
-      label: 'Delivery', 
-      description: 'Send packages safely and quickly',
-      icon: 'cube',
-      price: '₦100-250'
+      key: 'express',   // ✅ Corrected from 'delivery' to 'express'
+      label: 'Express', 
+      description: 'Fastest rides with priority matching',
+      icon: 'speedometer',
+      price: '₦400-800'
     },
   ];
 
@@ -86,7 +87,6 @@ export default function BookRideScreen() {
 
   const handleManualLocationInput = (text: string, type: 'pickup' | 'dropoff') => {
     if (text.trim().length === 0) {
-      // Clear the location if text is empty
       if (type === 'pickup') {
         setPickupLocation(null);
       } else {
@@ -95,11 +95,9 @@ export default function BookRideScreen() {
       return;
     }
 
-    // Simulate location search and set location
-    // In a real app, this would call a geocoding service
     const mockLocation: LocationData = {
       address: text,
-      latitude: 6.5244 + (Math.random() - 0.5) * 0.01, // Lagos area
+      latitude: 6.5244 + (Math.random() - 0.5) * 0.01,
       longitude: 3.3792 + (Math.random() - 0.5) * 0.01,
     };
 
@@ -111,7 +109,6 @@ export default function BookRideScreen() {
   };
 
   const handleContinueToDriverSelection = () => {
-    // Validation
     if (!pickupLocation) {
       Alert.alert('Error', 'Please select pickup location on the map');
       return;
@@ -121,7 +118,6 @@ export default function BookRideScreen() {
       return;
     }
 
-    // Navigate to driver selection with location data
     const pickupEncoded = encodeURIComponent(JSON.stringify(pickupLocation));
     const dropoffEncoded = encodeURIComponent(JSON.stringify(dropoffLocation));
     
@@ -146,7 +142,6 @@ export default function BookRideScreen() {
         end={{ x: 1, y: 1 }}
       >
         <SafeAreaView style={styles.safeArea}>
-          {/* Header */}
           <View style={styles.header}>
             <TouchableOpacity 
               style={styles.backButton}
@@ -173,173 +168,163 @@ export default function BookRideScreen() {
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           >
             <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-              {/* Interactive Map Section */}
-          <View style={styles.mapSection}>
-            <TouchableOpacity 
-              style={styles.mapContainer}
-              onPress={handleMapSelection}
-              activeOpacity={0.8}
-            >
-              <View style={styles.mapPlaceholder}>
-                <Ionicons name="map-outline" size={48} color="rgba(255,255,255,0.3)" />
-                <Text style={styles.mapText}>Interactive Map</Text>
-                <Text style={styles.mapSubtext}>
-                  Tap to select locations visually
-                </Text>
-                
-                {/* Location indicators */}
-                {pickupLocation && (
-                  <View style={styles.pickupIndicator}>
-                    <Ionicons name="location" size={20} color="#10B981" />
-                    <Text style={styles.indicatorLabel}>Pickup</Text>
-                  </View>
-                )}
-                
-                {dropoffLocation && (
-                  <View style={styles.dropoffIndicator}>
-                    <Ionicons name="location" size={20} color="#EF4444" />
-                    <Text style={styles.indicatorLabel}>Dropoff</Text>
-                  </View>
-                )}
-              </View>
-            </TouchableOpacity>
-            
-            {/* Map Selection Button */}
-            <TouchableOpacity
-              style={styles.mapSelectionButton}
-              onPress={handleMapSelection}
-            >
-              <Ionicons name="map" size={20} color={Colors.light.brand.secondary} />
-              <Text style={styles.mapSelectionText}>Select on Map</Text>
-              <Ionicons name="chevron-forward" size={16} color="#6B7280" />
-            </TouchableOpacity>
-          </View>
-
-          {/* Manual Location Input */}
-          <View style={styles.locationsForm}>
-            <Text style={styles.sectionTitle}>Trip Locations</Text>
-            
-            {/* Pickup Location */}
-            <View style={styles.locationGroup}>
-              <View style={styles.locationIcon}>
-                <View style={styles.pickupDot} />
-              </View>
-              <View style={styles.locationInputs}>
-                <Text style={styles.inputLabel}>Pickup Location</Text>
-                <TextInput
-                  style={[styles.textInput, pickupLocation && styles.textInputFilled]}
-                  value={pickupLocation?.address || ''}
-                  onChangeText={(text) => handleManualLocationInput(text, 'pickup')}
-                  placeholder="Enter pickup address or search location"
-                  placeholderTextColor="#6B7280"
-                  multiline={false}
-                />
-                {pickupLocation && (
-                  <TouchableOpacity 
-                    style={styles.clearButton}
-                    onPress={() => setPickupLocation(null)}
-                  >
-                    <Ionicons name="close-circle" size={20} color="#EF4444" />
-                  </TouchableOpacity>
-                )}
-              </View>
-            </View>
-
-            {/* Connection Line */}
-            <View style={styles.connectionLine} />
-
-            {/* Dropoff Location */}
-            <View style={styles.locationGroup}>
-              <View style={styles.locationIcon}>
-                <View style={styles.dropoffDot} />
-              </View>
-              <View style={styles.locationInputs}>
-                <Text style={styles.inputLabel}>Dropoff Location</Text>
-                <TextInput
-                  style={[styles.textInput, dropoffLocation && styles.textInputFilled]}
-                  value={dropoffLocation?.address || ''}
-                  onChangeText={(text) => handleManualLocationInput(text, 'dropoff')}
-                  placeholder="Enter destination address or search location"
-                  placeholderTextColor="#6B7280"
-                  multiline={false}
-                />
-                {dropoffLocation && (
-                  <TouchableOpacity 
-                    style={styles.clearButton}
-                    onPress={() => setDropoffLocation(null)}
-                  >
-                    <Ionicons name="close-circle" size={20} color="#EF4444" />
-                  </TouchableOpacity>
-                )}
-              </View>
-            </View>
-
-            {/* Location Status */}
-            {(pickupLocation || dropoffLocation) && (
-              <View style={styles.locationStatus}>
-                <Ionicons 
-                  name={pickupLocation && dropoffLocation ? "checkmark-circle" : "information-circle"} 
-                  size={16} 
-                  color={pickupLocation && dropoffLocation ? "#10B981" : Colors.light.brand.secondary} 
-                />
-                <Text style={styles.locationStatusText}>
-                  {pickupLocation && dropoffLocation 
-                    ? 'Both locations set - ready to find drivers'
-                    : pickupLocation 
-                    ? 'Pickup location set - now set dropoff location'
-                    : 'Dropoff location set - now set pickup location'
-                  }
-                </Text>
-              </View>
-            )}
-          </View>
-
-          {/* Ride Type Selection */}
-          <View style={styles.rideTypeSection}>
-            <Text style={styles.sectionTitle}>Choose Ride Type</Text>
-            <View style={styles.rideTypesContainer}>
-              {rideTypes.map((type) => (
-                <TouchableOpacity
-                  key={type.key}
-                  style={[
-                    styles.rideTypeOption,
-                    rideType === type.key && styles.rideTypeOptionActive
-                  ]}
-                  onPress={() => setRideType(type.key as any)}
+              <View style={styles.mapSection}>
+                <TouchableOpacity 
+                  style={styles.mapContainer}
+                  onPress={handleMapSelection}
+                  activeOpacity={0.8}
                 >
-                  <Ionicons 
-                    name={type.icon as any} 
-                    size={20} 
-                    color={rideType === type.key ? Colors.light.brand.secondary : '#6B7280'} 
-                  />
-                  <Text style={[
-                    styles.rideTypeLabel,
-                    rideType === type.key && styles.rideTypeLabelActive
-                  ]}>
-                    {type.label}
-                  </Text>
-                  <Text style={styles.rideTypePrice}>{type.price}</Text>
+                  <View style={styles.mapPlaceholder}>
+                    <Ionicons name="map-outline" size={48} color="rgba(255,255,255,0.3)" />
+                    <Text style={styles.mapText}>Interactive Map</Text>
+                    <Text style={styles.mapSubtext}>
+                      Tap to select locations visually
+                    </Text>
+                    
+                    {pickupLocation && (
+                      <View style={styles.pickupIndicator}>
+                        <Ionicons name="location" size={20} color="#10B981" />
+                        <Text style={styles.indicatorLabel}>Pickup</Text>
+                      </View>
+                    )}
+                    
+                    {dropoffLocation && (
+                      <View style={styles.dropoffIndicator}>
+                        <Ionicons name="location" size={20} color="#EF4444" />
+                        <Text style={styles.indicatorLabel}>Dropoff</Text>
+                      </View>
+                    )}
+                  </View>
                 </TouchableOpacity>
-              ))}
-            </View>
-          </View>
+                
+                <TouchableOpacity
+                  style={styles.mapSelectionButton}
+                  onPress={handleMapSelection}
+                >
+                  <Ionicons name="map" size={20} color={Colors.light.brand.secondary} />
+                  <Text style={styles.mapSelectionText}>Select on Map</Text>
+                  <Ionicons name="chevron-forward" size={16} color="#6B7280" />
+                </TouchableOpacity>
+              </View>
 
-          {/* Action Buttons */}
-          <View style={styles.buttonsContainer}>
-            <TouchableOpacity
-              style={[styles.primaryButton, !canContinue && styles.primaryButtonDisabled]}
-              onPress={handleContinueToDriverSelection}
-              disabled={!canContinue}
-            >
-              <Text style={[styles.primaryButtonText, !canContinue && styles.primaryButtonTextDisabled]}>
-                Find Available Drivers
-              </Text>
-              <Ionicons 
-                name="arrow-forward" 
-                size={20} 
-                color={canContinue ? Colors.light.brand.primary : '#6B7280'} 
-              />
-            </TouchableOpacity>
+              <View style={styles.locationsForm}>
+                <Text style={styles.sectionTitle}>Trip Locations</Text>
+                
+                <View style={styles.locationGroup}>
+                  <View style={styles.locationIcon}>
+                    <View style={styles.pickupDot} />
+                  </View>
+                  <View style={styles.locationInputs}>
+                    <Text style={styles.inputLabel}>Pickup Location</Text>
+                    <TextInput
+                      style={[styles.textInput, pickupLocation && styles.textInputFilled]}
+                      value={pickupLocation?.address || ''}
+                      onChangeText={(text) => handleManualLocationInput(text, 'pickup')}
+                      placeholder="Enter pickup address or search location"
+                      placeholderTextColor="#6B7280"
+                      multiline={false}
+                    />
+                    {pickupLocation && (
+                      <TouchableOpacity 
+                        style={styles.clearButton}
+                        onPress={() => setPickupLocation(null)}
+                      >
+                        <Ionicons name="close-circle" size={20} color="#EF4444" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+
+                <View style={styles.connectionLine} />
+
+                <View style={styles.locationGroup}>
+                  <View style={styles.locationIcon}>
+                    <View style={styles.dropoffDot} />
+                  </View>
+                  <View style={styles.locationInputs}>
+                    <Text style={styles.inputLabel}>Dropoff Location</Text>
+                    <TextInput
+                      style={[styles.textInput, dropoffLocation && styles.textInputFilled]}
+                      value={dropoffLocation?.address || ''}
+                      onChangeText={(text) => handleManualLocationInput(text, 'dropoff')}
+                      placeholder="Enter destination address or search location"
+                      placeholderTextColor="#6B7280"
+                      multiline={false}
+                    />
+                    {dropoffLocation && (
+                      <TouchableOpacity 
+                        style={styles.clearButton}
+                        onPress={() => setDropoffLocation(null)}
+                      >
+                        <Ionicons name="close-circle" size={20} color="#EF4444" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+
+                {(pickupLocation || dropoffLocation) && (
+                  <View style={styles.locationStatus}>
+                    <Ionicons 
+                      name={pickupLocation && dropoffLocation ? "checkmark-circle" : "information-circle"} 
+                      size={16} 
+                      color={pickupLocation && dropoffLocation ? "#10B981" : Colors.light.brand.secondary} 
+                    />
+                    <Text style={styles.locationStatusText}>
+                      {pickupLocation && dropoffLocation 
+                        ? 'Both locations set - ready to find drivers'
+                        : pickupLocation 
+                        ? 'Pickup location set - now set dropoff location'
+                        : 'Dropoff location set - now set pickup location'
+                      }
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.rideTypeSection}>
+                <Text style={styles.sectionTitle}>Choose Ride Type</Text>
+                <View style={styles.rideTypesContainer}>
+                  {rideTypes.map((type) => (
+                    <TouchableOpacity
+                      key={type.key}
+                      style={[
+                        styles.rideTypeOption,
+                        rideType === type.key && styles.rideTypeOptionActive
+                      ]}
+                      onPress={() => setRideType(type.key as any)}
+                    >
+                      <Ionicons 
+                        name={type.icon as any} 
+                        size={20} 
+                        color={rideType === type.key ? Colors.light.brand.secondary : '#6B7280'} 
+                      />
+                      <Text style={[
+                        styles.rideTypeLabel,
+                        rideType === type.key && styles.rideTypeLabelActive
+                      ]}>
+                        {type.label}
+                      </Text>
+                      <Text style={styles.rideTypePrice}>{type.price}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              <View style={styles.buttonsContainer}>
+                <TouchableOpacity
+                  style={[styles.primaryButton, !canContinue && styles.primaryButtonDisabled]}
+                  onPress={handleContinueToDriverSelection}
+                  disabled={!canContinue}
+                >
+                  <Text style={[styles.primaryButtonText, !canContinue && styles.primaryButtonTextDisabled]}>
+                    Find Available Drivers
+                  </Text>
+                  <Ionicons 
+                    name="arrow-forward" 
+                    size={20} 
+                    color={canContinue ? Colors.light.brand.secondary : '#6B7280'} 
+                  />
+                </TouchableOpacity>
               </View>
             </ScrollView>
           </KeyboardAvoidingView>
@@ -361,9 +346,6 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
-  },
-  content: {
-    paddingBottom: Spacing.xl,
   },
   header: {
     paddingHorizontal: Spacing.lg,
@@ -532,59 +514,6 @@ const styles = StyleSheet.create({
     color: 'white',
     marginTop: Spacing.xs,
     fontFamily: Typography.fontFamily.medium,
-  },
-  locationsPanel: {
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-    backgroundColor: '#374151',
-    marginHorizontal: Spacing.lg,
-    borderRadius: BorderRadius.lg,
-    marginBottom: Spacing.lg,
-    gap: Spacing.md,
-  },
-  locationCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#4B5563',
-    padding: Spacing.md,
-    borderRadius: BorderRadius.md,
-  },
-  locationPlaceholder: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: Spacing.md,
-    opacity: 0.6,
-  },
-  locationDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginRight: Spacing.md,
-  },
-  pickupDot: {
-    backgroundColor: '#10B981',
-  },
-  dropoffDot: {
-    backgroundColor: '#EF4444',
-  },
-  locationInfo: {
-    flex: 1,
-  },
-  locationLabel: {
-    fontSize: Typography.fontSize.sm,
-    fontFamily: Typography.fontFamily.medium,
-    color: '#9CA3AF',
-    marginBottom: Spacing.xs,
-  },
-  locationAddress: {
-    fontSize: Typography.fontSize.base,
-    fontFamily: Typography.fontFamily.medium,
-    color: 'white',
-  },
-  placeholderText: {
-    fontSize: Typography.fontSize.base,
-    fontFamily: Typography.fontFamily.regular,
-    color: '#6B7280',
   },
   rideTypeSection: {
     paddingHorizontal: Spacing.lg,

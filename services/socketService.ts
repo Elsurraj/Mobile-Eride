@@ -85,11 +85,17 @@ interface RideCancellation {
   timestamp: string;
 }
 
+interface AssignmentTimeout {
+  rideId: string;
+  message: string;
+}
+
 interface SocketEventHandlers {
   onStatusUpdate?: (data: RideStatusUpdate) => void;
   onLocationUpdate?: (data: LocationUpdate) => void;
   onDriverAssigned?: (data: DriverAssigned) => void;
   onRideCancelled?: (data: RideCancellation) => void;
+  onAssignmentTimeout?: (data: AssignmentTimeout) => void; // NEW
   onDisconnect?: () => void;
   onReconnect?: () => void;
   onError?: (error: any) => void;
@@ -136,7 +142,6 @@ class SocketService {
     this.isConnecting = true;
     
     try {
-      // Check if Socket.IO is available
       if (typeof window !== 'undefined' && window.io) {
         const baseUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000';
         const token = await enhancedTokenManager.getToken();
@@ -194,31 +199,37 @@ class SocketService {
   private setupRealSocketHandlers(): void {
     if (!this.socket) return;
 
+    // Driver receives ride assignment
+    this.socket.on('driver:ride_assigned', (data: DriverAssigned) => {
+      console.log('👤 Socket Service: Driver assigned', data);
+      this.handlers.onDriverAssigned?.(data);
+    });
+
+    // Driver assignment timeout (no response)
+    this.socket.on('driver:assignment_timeout', (data: AssignmentTimeout) => {
+      console.log('⏰ Socket Service: Assignment timeout', data);
+      this.handlers.onAssignmentTimeout?.(data);
+    });
+
+    // General ride status updates (for rider or driver after assignment)
     this.socket.on('ride:status_update', (data: RideStatusUpdate) => {
       console.log('📡 Socket Service: Received status update', data);
       this.handlers.onStatusUpdate?.(data);
     });
 
+    // Location updates during active ride
     this.socket.on('ride:location_update', (data: LocationUpdate) => {
       console.log('📍 Socket Service: Received location update', data);
       this.handlers.onLocationUpdate?.(data);
     });
 
-    this.socket.on('ride:driver_assigned', (data: DriverAssigned) => {
-      console.log('👤 Socket Service: Driver assigned', data);
-      this.handlers.onDriverAssigned?.(data);
-    });
-
-    this.socket.on('ride:cancelled_by_rider', (data: RideCancellation) => {
-      console.log('❌ Socket Service: Ride cancelled by rider', data);
+    // Cancellation events
+    this.socket.on('ride:cancelled', (data: RideCancellation) => {
+      console.log('❌ Socket Service: Ride cancelled', data);
       this.handlers.onRideCancelled?.(data);
     });
 
-    this.socket.on('ride:cancelled_by_driver', (data: RideCancellation) => {
-      console.log('🚫 Socket Service: Ride cancelled by driver', data);
-      this.handlers.onRideCancelled?.(data);
-    });
-
+    // Connection lifecycle
     this.socket.on('disconnect', () => {
       console.log('🔌 Socket Service: Disconnected');
       this.handlers.onDisconnect?.();
@@ -248,15 +259,15 @@ class SocketService {
   }
 
   /**
-   * Subscribe to ride updates
+   * Subscribe to ride updates (passive — no emit needed)
+   * Backend automatically adds you to ride:{id} room after accept
    */
   subscribeToRide(rideId: string): void {
     if (this.mockMode) {
       this.startMockRideUpdates(rideId);
-    } else if (this.socket?.connected) {
-      console.log(`🔔 Socket Service: Subscribing to ride ${rideId}`);
-      this.socket.emit('join_ride_room', { rideId });
     }
+    // DO NOT emit 'join_ride_room' — backend handles ride room membership
+    console.log(`🔔 Socket Service: Listening for updates on ride ${rideId} (no manual join)`);
   }
 
   /**
@@ -265,22 +276,16 @@ class SocketService {
   unsubscribeFromRide(rideId: string): void {
     if (this.mockMode) {
       this.stopMockRideUpdates(rideId);
-    } else if (this.socket?.connected) {
-      console.log(`🔕 Socket Service: Unsubscribing from ride ${rideId}`);
-      this.socket.emit('leave_ride_room', { rideId });
     }
+    console.log(`🔕 Socket Service: Stopped listening to ride ${rideId}`);
   }
 
-  /**
-   * Start mock ride updates for testing
-   */
+  // --- Mock methods (unchanged) ---
   private startMockRideUpdates(rideId: string): void {
     console.log(`🎭 Socket Service: Starting mock updates for ride ${rideId}`);
 
-    // Clear any existing interval
     this.stopMockRideUpdates(rideId);
 
-    // Simulate driver assignment after 3 seconds
     setTimeout(() => {
       const mockDriver = {
         id: 'driver_mock_001',
@@ -303,7 +308,6 @@ class SocketService {
         estimatedArrival: '5 minutes'
       });
 
-      // Status update to accepted
       this.handlers.onStatusUpdate?.({
         rideId,
         status: 'accepted',
@@ -317,9 +321,7 @@ class SocketService {
         message: 'Driver has accepted your ride'
       });
 
-      // Start location updates every 3 seconds
       this.mockIntervals[`location_${rideId}`] = setInterval(() => {
-        // Simulate driver moving towards pickup
         const lat = 40.7580 + (Math.random() - 0.5) * 0.001;
         const lng = -73.9855 + (Math.random() - 0.5) * 0.001;
 
@@ -334,13 +336,9 @@ class SocketService {
           timestamp: new Date().toISOString()
         });
       }, 3000);
-
     }, 3000);
   }
 
-  /**
-   * Stop mock ride updates
-   */
   private stopMockRideUpdates(rideId: string): void {
     const locationKey = `location_${rideId}`;
     if (this.mockIntervals[locationKey]) {
@@ -350,11 +348,7 @@ class SocketService {
     }
   }
 
-  /**
-   * Simulate driver disconnect (for testing)
-   */
   simulateDriverDisconnect(rideId: string): void {
-    console.log(`🎭 Socket Service: Simulating driver disconnect for ride ${rideId}`);
     this.handlers.onStatusUpdate?.({
       rideId,
       status: 'error',
@@ -362,11 +356,7 @@ class SocketService {
     });
   }
 
-  /**
-   * Simulate no drivers available (for testing)
-   */
   simulateNoDrivers(rideId: string): void {
-    console.log(`🎭 Socket Service: Simulating no drivers for ride ${rideId}`);
     setTimeout(() => {
       this.handlers.onStatusUpdate?.({
         rideId,
@@ -376,11 +366,7 @@ class SocketService {
     }, 5000);
   }
 
-  /**
-   * Simulate ride completion (for testing)
-   */
   simulateRideComplete(rideId: string): void {
-    console.log(`🎭 Socket Service: Simulating ride completion for ride ${rideId}`);
     this.stopMockRideUpdates(rideId);
     this.handlers.onStatusUpdate?.({
       rideId,
@@ -389,24 +375,15 @@ class SocketService {
     });
   }
 
-  /**
-   * Simulate ride cancellation by rider (for testing)
-   */
   simulateRiderCancellation(rideId: string, penalty?: number): void {
-    console.log(`🎭 Socket Service: Simulating rider cancellation for ride ${rideId}`);
     this.stopMockRideUpdates(rideId);
-    
     const cancellationData: RideCancellation = {
       rideId,
       cancelled_by: 'rider',
       reason: 'Changed plans',
-      penalty: penalty ? {
-        amount: penalty,
-        formatted_amount: `₦${penalty.toFixed(2)}`
-      } : undefined,
+      penalty: penalty ? { amount: penalty, formatted_amount: `₦${penalty.toFixed(2)}` } : undefined,
       timestamp: new Date().toISOString()
     };
-    
     this.handlers.onRideCancelled?.(cancellationData);
     this.handlers.onStatusUpdate?.({
       rideId,
@@ -415,29 +392,17 @@ class SocketService {
     });
   }
 
-  /**
-   * Simulate ride cancellation by driver (for testing)
-   */
   simulateDriverCancellation(rideId: string, withReplacement: boolean = true): void {
-    console.log(`🎭 Socket Service: Simulating driver cancellation for ride ${rideId}`);
     this.stopMockRideUpdates(rideId);
-    
     const cancellationData: RideCancellation = {
       rideId,
       cancelled_by: 'driver',
       reason: 'Traffic emergency',
-      replacement_driver: withReplacement ? {
-        id: 'replacement_driver_001',
-        name: 'Sarah Wilson',
-        eta: 8
-      } : undefined,
+      replacement_driver: withReplacement ? { id: 'replacement_driver_001', name: 'Sarah Wilson', eta: 8 } : undefined,
       timestamp: new Date().toISOString()
     };
-    
     this.handlers.onRideCancelled?.(cancellationData);
-    
     if (withReplacement) {
-      // Simulate finding replacement driver after 2 seconds
       setTimeout(() => {
         this.handlers.onStatusUpdate?.({
           rideId,
@@ -467,17 +432,24 @@ class SocketService {
   }
 
   /**
-   * Check if connected
+   * After login + OTP verification, join personal room
    */
+  joinPersonalRoom(userId: string, role: 'rider' | 'driver'): void {
+    if (!this.mockMode && this.socket?.connected) {
+      this.socket.emit('join_room', {
+        user_id: userId,
+        role,
+        timestamp: new Date().toISOString()
+      });
+      console.log(`🏠 Socket Service: Joined personal room ${role}:${userId}`);
+    }
+  }
+
   isConnected(): boolean {
     return this.mockMode || (this.socket?.connected || false);
   }
 
-  /**
-   * Disconnect and cleanup
-   */
   disconnect(): void {
-    // Clear all mock intervals
     Object.keys(this.mockIntervals).forEach(key => {
       clearInterval(this.mockIntervals[key]);
     });
@@ -487,10 +459,16 @@ class SocketService {
       this.socket.disconnect();
       this.socket = null;
     }
-    
     console.log('🔌 Socket Service: Disconnected and cleaned up');
   }
 }
 
 export const socketService = SocketService.getInstance();
-export type { RideStatusUpdate, LocationUpdate, DriverAssigned, RideCancellation, SocketEventHandlers };
+export type {
+  RideStatusUpdate,
+  LocationUpdate,
+  DriverAssigned,
+  RideCancellation,
+  AssignmentTimeout,
+  SocketEventHandlers
+};
